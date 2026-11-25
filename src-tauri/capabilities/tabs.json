@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "tabs-cred",
+  "description": "Las pestañas solo pueden avisar de que se ha enviado una contraseña (para preguntar si se guarda). Nada más.",
+  "webviews": ["tab-*"],
+  "remote": { "urls": ["https://*", "http://*", "https://*/*", "http://*/*", "https://*:*/*", "http://*:*/*"] },
+  "permissions": ["allow-cred-capture"]
+}

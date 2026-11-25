@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-new-identity"
+description = "Enables the new_identity command without any pre-configured scope."
+commands.allow = ["new_identity"]
+
+[[permission]]
+identifier = "deny-new-identity"
+description = "Denies the new_identity command without any pre-configured scope."
+commands.deny = ["new_identity"]

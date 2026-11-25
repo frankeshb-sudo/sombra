@@ -1,0 +1,7 @@
+﻿src-tauri/target/
+src-tauri/gen/
+*.tmp
+tools/preview/index.html
+
+.claude/
+/test

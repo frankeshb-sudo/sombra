@@ -1,0 +1,253 @@
+<!doctype html>
+<!-- Sombra - interfaz. Licencia GPL-3.0-or-later. -->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sombra</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top">
+    <div id="tabbar">
+      <div class="brand" title="Sombra"><svg viewBox="0 0 24 24"><path d="M15.5 4.5a8 8 0 1 0 4 11.5 7 7 0 0 1-4-11.5z"/></svg></div>
+      <div id="tabs" role="tablist"></div>
+      <button id="btn-newtab" class="icon" data-t-title="newTab"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <div id="toolbar">
+      <button id="btn-back" class="icon" data-t-title="back"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <button id="btn-fwd" class="icon" data-t-title="forward"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button id="btn-reload" class="icon" data-t-title="reload"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg></button>
+      <button id="btn-home" class="icon" data-t-title="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></button>
+      <form id="addr-form" autocomplete="off">
+        <span id="addr-lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+        <input id="addr" spellcheck="false" data-t-ph="addrPh" list="suggest">
+        <datalist id="suggest"></datalist>
+        <button id="btn-fill" type="button" class="icon small hidden" data-t-title="vFillTitle"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg></button>
+        <button id="btn-star" type="button" class="icon small" data-t-title="bookmark"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/></svg></button>
+      </form>
+      <button id="shield" class="pill" data-t-title="shieldTip"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg><span id="shield-txt">…</span></button>
+      <select id="country" class="pill" data-t-title="countryTip"></select>
+      <button id="ai-pill" class="pill hidden" data-t-title="aiTip"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/></svg><span id="ai-name"></span></button>
+      <button id="btn-keys" class="icon" data-t-title="passwords"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg></button>
+      <button id="btn-history" class="icon" data-t-title="history"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg></button>
+      <button id="btn-settings" class="icon" data-t-title="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      <button id="btn-panel" class="icon" data-t-title="panel"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></button>
+    </div>
+    <div id="bookmarks"></div>
+    <div id="alerts"></div>
+  </header>
+
+  <main>
+    <section id="content">
+      <div id="newtab" class="hidden">
+        <div class="hero">
+          <svg viewBox="0 0 24 24" class="moon"><path d="M15.5 4.5a8 8 0 1 0 4 11.5 7 7 0 0 1-4-11.5z"/></svg>
+          <h1>Sombra</h1>
+          <p id="tor-line" class="muted"></p>
+          <div id="tor-bar"><div id="tor-fill"></div></div>
+          <form id="search-form" autocomplete="off"><input id="search" spellcheck="false"></form>
+          <p id="search-note" class="priv"></p>
+        </div>
+        <div id="speed"></div>
+      </div>
+
+      <!-- Páginas internas (tapan la web mientras están abiertas) -->
+      <div id="page" class="hidden">
+        <div class="page-head">
+          <h2 id="page-title"></h2>
+          <button id="page-close" class="icon" data-t-title="close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+
+        <div id="view-settings" class="view">
+          <section class="card">
+            <h3 data-t="language"></h3>
+            <select id="s-lang" class="field"></select>
+          </section>
+          <section class="card">
+            <h3 data-t="appearance"></h3>
+            <div class="grid2">
+              <label><span data-t="theme"></span>
+                <select id="s-theme" class="field">
+                  <option value="dark" data-t="themeDark"></option>
+                  <option value="light" data-t="themeLight"></option>
+                  <option value="system" data-t="themeSystem"></option>
+                </select>
+              </label>
+              <label><span data-t="fontSize"></span> <b id="s-fs-val"></b>
+                <input id="s-fs" type="range" min="11" max="18" step="1">
+              </label>
+            </div>
+            <div class="row-l"><span data-t="accent"></span><div id="s-accent" class="swatches"></div></div>
+            <label class="switch"><input type="checkbox" id="s-compact"><span data-t="compact"></span></label>
+            <label class="switch"><input type="checkbox" id="s-bmbar"><span data-t="showBookmarks"></span></label>
+          </section>
+          <section class="card">
+            <h3 data-t="searchEngine"></h3>
+            <select id="s-engine" class="field"></select>
+            <input id="s-engine-custom" class="field hidden" spellcheck="false" data-t-ph="customPh">
+            <p id="s-engine-priv" class="priv"></p>
+            <p id="s-engine-err" class="err hidden"></p>
+          </section>
+          <section class="card">
+            <h3 data-t="historyMode"></h3>
+            <label class="switch"><input type="radio" name="hmode" value="off"><span data-t="histOff"></span></label>
+            <label class="switch"><input type="radio" name="hmode" value="session"><span data-t="histSession"></span></label>
+            <label class="switch"><input type="radio" name="hmode" value="save"><span data-t="histSave"></span></label>
+            <p class="muted small" data-t="histSaveNote"></p>
+            <label class="switch"><input type="checkbox" id="s-cleanexit"><span data-t="cleanOnExit"></span></label>
+            <label class="switch"><input type="checkbox" id="s-histsearch"><span data-t="histSearches"></span></label>
+            <button id="s-viewhist" class="btn" data-t="viewHistory"></button>
+          </section>
+          <section class="card" id="cleaner">
+            <h3 data-t="cleaner"></h3>
+            <div class="checks">
+              <label class="switch"><input type="checkbox" data-clean="history" checked><span data-t="cHistory"></span></label>
+              <label class="switch"><input type="checkbox" data-clean="cache" checked><span data-t="cCache"></span></label>
+              <label class="switch"><input type="checkbox" data-clean="identity" checked><span data-t="cIdentity"></span></label>
+              <label class="switch"><input type="checkbox" data-clean="logs"><span data-t="cLogs"></span></label>
+              <label class="switch"><input type="checkbox" data-clean="stats"><span data-t="cStats"></span></label>
+              <label class="switch"><input type="checkbox" data-clean="tabs"><span data-t="cTabs"></span></label>
+            </div>
+            <button id="btn-clean" class="btn primary" data-t="cleanNow"></button>
+            <p id="clean-msg" class="ok-msg hidden"></p>
+          </section>
+          <p class="muted small center">Sombra 0.1 · GPL-3.0 · <span data-t="noTelemetry"></span></p>
+        </div>
+
+        <div id="view-passwords" class="view">
+          <!-- Crear -->
+          <section class="card hidden" id="v-create">
+            <h3 data-t="vCreateTitle"></h3>
+            <p class="muted small" data-t="vCreateInfo"></p>
+            <input id="vc-pass" type="password" class="field" data-t-ph="vMaster" autocomplete="new-password">
+            <input id="vc-pass2" type="password" class="field" data-t-ph="vRepeat" autocomplete="new-password">
+            <input id="vc-hint" class="field" data-t-ph="vHint" maxlength="100" spellcheck="false">
+            <p class="muted small" data-t="vHintNote"></p>
+            <button id="vc-go" class="btn primary" data-t="vCreate"></button>
+            <p id="vc-err" class="err hidden"></p>
+          </section>
+          <!-- Frase de recuperación (solo una vez) -->
+          <section class="card hidden" id="v-phrase">
+            <h3 data-t="vPhraseTitle"></h3>
+            <p class="muted small" data-t="vPhraseInfo"></p>
+            <ol id="vp-words" class="words"></ol>
+            <label class="switch"><input type="checkbox" id="vp-ok"><span data-t="vPhraseOk"></span></label>
+            <button id="vp-go" class="btn primary" data-t="ok" disabled></button>
+          </section>
+          <!-- Desbloquear -->
+          <section class="card hidden" id="v-unlock">
+            <h3 data-t="vUnlockTitle"></h3>
+            <form id="vu-form" autocomplete="off"><input id="vu-pass" type="password" class="field" data-t-ph="vMaster"></form>
+            <p id="vu-hint" class="muted small"></p>
+            <div class="btns"><button id="vu-go" class="btn primary" data-t="vUnlock"></button><button id="vu-forgot" class="btn" data-t="vForgot"></button></div>
+            <p id="vu-err" class="err hidden"></p>
+          </section>
+          <!-- Recuperar con la frase -->
+          <section class="card hidden" id="v-recover">
+            <h3 data-t="vForgot"></h3>
+            <p class="muted small" data-t="vRecoverInfo"></p>
+            <textarea id="vr-phrase" class="field" rows="3" spellcheck="false" data-t-ph="vPhrase"></textarea>
+            <input id="vr-pass" type="password" class="field" data-t-ph="vNewMaster" autocomplete="new-password">
+            <input id="vr-pass2" type="password" class="field" data-t-ph="vRepeat" autocomplete="new-password">
+            <input id="vr-hint" class="field" data-t-ph="vHint" maxlength="100" spellcheck="false">
+            <div class="btns"><button id="vr-go" class="btn primary" data-t="vRecover"></button><button id="vr-back" class="btn" data-t="back"></button></div>
+            <p id="vr-err" class="err hidden"></p>
+          </section>
+          <!-- Lista -->
+          <div id="v-main" class="hidden">
+            <section class="card">
+              <div class="hist-tools">
+                <input id="vm-search" class="field" spellcheck="false" data-t-ph="vSearch">
+                <button id="vm-lock" class="btn" data-t="vLock"></button>
+              </div>
+              <p class="muted small" data-t="vAiNote"></p>
+              <div id="vm-list"></div>
+              <p id="vm-msg" class="ok-msg hidden"></p>
+            </section>
+            <section class="card">
+              <h3 data-t="vGen"></h3>
+              <div class="gen"><input id="vg-out" class="field mono" readonly><button id="vg-copy" class="btn" data-t="vCopy"></button></div>
+              <div class="row-l">
+                <label><span data-t="vGenLen"></span> <b id="vg-len-val"></b> <input id="vg-len" type="range" min="12" max="40" value="20"></label>
+                <label class="switch"><input type="checkbox" id="vg-sym" checked><span data-t="vSymbols"></span></label>
+                <button id="vg-go" class="btn" data-t="vGenerate"></button>
+              </div>
+            </section>
+            <section class="card">
+              <h3 data-t="vAutoLock"></h3>
+              <select id="vm-autolock" class="field">
+                <option value="5">5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option><option value="0" data-t="vNoAutoLock"></option>
+              </select>
+              <h3 data-t="vNever"></h3>
+              <div id="vm-never"></div>
+            </section>
+          </div>
+        </div>
+
+        <div id="view-history" class="view">
+          <div class="hist-tools">
+            <input id="h-search" class="field" spellcheck="false" data-t-ph="histSearchPh">
+            <button id="h-clear" class="btn danger" data-t="clearAllHistory"></button>
+          </div>
+          <p id="h-mode" class="muted small"></p>
+          <div id="h-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside id="panel" class="hidden">
+      <div class="card">
+        <h3 data-t="privacy"></h3>
+        <div class="row"><span data-t="torState"></span><b id="p-tor"></b></div>
+        <div class="row"><span data-t="exitCountry"></span><b id="p-country"></b></div>
+        <div class="row"><span data-t="leaks"></span><b id="p-leaks">0</b></div>
+        <div class="btns"><button id="btn-newid" data-t="newId"></button><button id="btn-checkip" data-t="checkIp"></button></div>
+      </div>
+      <div class="card">
+        <h3 data-t="blocked"></h3>
+        <div class="stats">
+          <div><b id="s-page">0</b><span data-t="thisPage"></span></div>
+          <div><b id="s-ads">0</b><span data-t="ads"></span></div>
+          <div><b id="s-trk">0</b><span data-t="trackers"></span></div>
+        </div>
+        <label class="switch"><input type="checkbox" id="t-block"><span data-t="blockToggle"></span></label>
+      </div>
+      <div class="card">
+        <h3 data-t="fingerprint"></h3>
+        <p id="fp" class="muted"></p>
+      </div>
+      <div class="card">
+        <h3 data-t="cleaner"></h3>
+        <button id="btn-quickclean" data-t="cleanNow"></button>
+      </div>
+      <div class="card">
+        <h3 data-t="aiControl"></h3>
+        <label class="switch"><input type="checkbox" id="t-ai"><span data-t="aiToggle"></span></label>
+        <p id="ai-info" class="muted"></p>
+        <button id="btn-cut" class="danger" data-t="cutAi"></button>
+      </div>
+      <div class="card">
+        <h3 data-t="secLog"></h3>
+        <div id="logs"></div>
+        <button id="btn-clearlog" class="ghost" data-t="clearLog"></button>
+      </div>
+    </aside>
+  </main>
+  <script src="i18n.js"></script>
+  <script src="locales/es.js"></script>
+  <script src="locales/en.js"></script>
+  <script src="locales/fr.js"></script>
+  <script src="locales/de.js"></script>
+  <script src="locales/it.js"></script>
+  <script src="locales/pt.js"></script>
+  <script src="locales/ca.js"></script>
+  <script src="locales/nl.js"></script>
+  <script src="locales/pl.js"></script>
+  <script src="locales/ru.js"></script>
+  <script src="locales/zh.js"></script>
+  <script src="locales/ja.js"></script>
+  <script src="locales/ar.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

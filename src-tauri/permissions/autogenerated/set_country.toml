@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-country"
+description = "Enables the set_country command without any pre-configured scope."
+commands.allow = ["set_country"]
+
+[[permission]]
+identifier = "deny-set-country"
+description = "Denies the set_country command without any pre-configured scope."
+commands.deny = ["set_country"]

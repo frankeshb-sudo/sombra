@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-blocking"
+description = "Enables the set_blocking command without any pre-configured scope."
+commands.allow = ["set_blocking"]
+
+[[permission]]
+identifier = "deny-set-blocking"
+description = "Denies the set_blocking command without any pre-configured scope."
+commands.deny = ["set_blocking"]

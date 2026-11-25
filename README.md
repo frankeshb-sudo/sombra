@@ -1,0 +1,74 @@
+# Sombra
+
+Navegador **ligero y privado**: sin publicidad, con **Tor integrado**, elección de país y una puerta de control para que **cualquier IA** (Claude, ChatGPT, una IA local...) navegue por ti.
+
+> Versión 0.1 (primera prueba). Licencia **GPL-3.0-or-later**: libre y gratis. Quien lo modifique y lo comparta tiene que publicar su código.
+
+## Qué hace
+
+| Función | Cómo |
+|---|---|
+| IP oculta siempre | Todo el tráfico sale por Tor (Arti, integrado). Si Tor no funciona, **no hay conexión** (nunca usa la directa). |
+| País de salida | Selector en la barra: Alemania, Francia, EE. UU., etc. |
+| Sin publicidad | EasyList, EasyPrivacy, EasyList España y lista de avisos de cookies (motor adblock-rust). Bloqueo por red y ocultación de huecos. |
+| Sin fugas | WebRTC desactivado, sin QUIC/UDP, DNS por Tor, red local inaccesible desde las webs. |
+| Nada se guarda | Historial, cookies y caché solo en memoria; se borran al cerrar. |
+| Anti-huella digital | Detecta y engaña intentos de identificar tu equipo (canvas, WebGL, audio, fuentes). |
+| Control para IAs | API local con token, aviso de cada IA nueva, permiso antes de enviar formularios, botón "Cortar IA" y registro de intrusos. |
+| Favoritos | Barra de favoritos y accesos rápidos en la pestaña nueva (clic derecho para quitar). |
+| 13 idiomas | Español, English, Français, Deutsch, Italiano, Português, Català, Nederlands, Polski, Русский, 中文, 日本語, العربية (de derecha a izquierda). Automático según el sistema. |
+| Buscador privado | Por defecto **DuckDuckGo .onion**: la búsqueda no sale de la red Tor, así que ni el buscador ni ningún nodo sabe quién busca. Cada búsqueda va por un circuito nuevo y no se guarda en el historial. Se puede cambiar por DuckDuckGo, Startpage, Brave, Mojeek, Qwant, Ecosia, Google, Bing o uno propio; Sombra avisa del nivel de privacidad de cada uno. |
+| Aislamiento por web | Cada dominio usa sus propios circuitos de Tor: dos webs no pueden relacionarte por compartir circuito. |
+| Ajustes | Idioma, tema (oscuro/claro/sistema), color, tamaño de letra, modo compacto, barra de favoritos y buscador. |
+| Historial | Tú eliges: no guardar nada, solo mientras Sombra está abierto (por defecto) o guardar en el equipo. Con buscador y borrado al cerrar. `Ctrl+H`. |
+| Contraseñas | Bóveda cifrada en tu equipo (XChaCha20-Poly1305 + Argon2id), nunca en la nube. Al entrar o registrarte en una web pregunta *Guardar / Ahora no / Nunca en esta web*; la llave de la barra la rellena solo cuando tú pulsas. Generador, bloqueo automático y recuperación con frase de 12 palabras. Las IAs nunca ven las contraseñas. |
+| Limpiador | Borra historial, caché y cookies, identidad de Tor, registro, contadores o pestañas con un botón. `Ctrl+Mayús+Supr`. |
+
+**Añadir un idioma:** copia `ui/locales/en.js`, tradúcelo, añádelo en `ui/index.html` y en `LANG_NAMES` (`ui/i18n.js`), y comprueba con `node tools/check-locales.mjs`.
+
+## Usarlo con una IA (MCP)
+
+1. Abre Sombra → panel (☰) → activa **Permitir que una IA use Sombra**.
+2. Añade el servidor MCP a tu IA. Ejemplo para Claude Code / Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "sombra": {
+      "command": "node",
+      "args": ["D:/Escritorio/Sombra/mcp/sombra-mcp.mjs"],
+      "env": { "SOMBRA_CLIENT": "Claude" }
+    }
+  }
+}
+```
+
+3. Dile a la IA: *"Entra en tal web a través de Sombra y..."*. La primera vez Sombra te pedirá permiso.
+
+**Otras IAs o programas propios:** API HTTP en `http://127.0.0.1:<puerto>/v1/<acción>` (POST JSON) con la cabecera `Authorization: Bearer <token>`. Puerto y token están en `%LOCALAPPDATA%\Sombra\control.json` (Linux: `~/.local/share/Sombra/control.json`). Acciones: `status, open, read, click, type, select, scroll, back, forward, reload, tabs, switch_tab, close_tab, country, new_identity`.
+
+Reglas de seguridad (para todas las IAs): las **contraseñas** y los **CAPTCHA** los pone el usuario; **enviar formularios** necesita su permiso.
+
+## Compilar
+
+Requisitos: Rust y, en Windows, Visual Studio Build Tools (C++).
+
+```
+cd src-tauri
+cargo build --release
+```
+
+Instalador (opcional): `cargo install tauri-cli --version "^2"` y luego `cargo tauri build`.
+
+## Limitaciones conocidas (0.1)
+
+- Por Tor algunas webs van más lentas y muestran más CAPTCHAs.
+- Las webs pueden notar que el motor es WebView2/Chromium. Contra la huella digital, el Tor Browser oficial sigue siendo más fuerte.
+- Anuncios de YouTube: aún no (requiere scriptlets; previsto).
+- Las webs pueden saber que Sombra está hecho con Tauri (variables `isTauri` y `__TAURI_INTERNALS__`, que Tauri crea sin permitir borrarlas). No pueden usarlas para dar órdenes a Sombra: solo para el aviso de "¿Guardar la contraseña?" de su propia web.
+- Contraseñas: si olvidas la contraseña maestra **y** pierdes las 12 palabras, no hay forma de recuperarlas (así nadie más puede).
+- Previsto: favoritos e historial dentro de la bóveda, recuperación con llave USB / otro dispositivo / personas de confianza, versión Android.
+
+## Créditos
+
+Tor/Arti (The Tor Project, MIT/Apache-2.0), adblock-rust (Brave, MPL-2.0), listas EasyList (GPL-3.0/CC BY-SA 3.0), Tauri (MIT/Apache-2.0).
