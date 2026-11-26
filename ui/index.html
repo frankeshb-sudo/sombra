@@ -105,6 +105,13 @@
             <button id="s-viewhist" class="btn" data-t="viewHistory"></button>
           </section>
           <section class="card">
+            <h3 data-t="secLevel"></h3>
+            <label class="switch"><input type="radio" name="seclvl" value="0"><span><b data-t="secNormal"></b> — <span data-t="secNormalNote"></span></span></label>
+            <label class="switch"><input type="radio" name="seclvl" value="1"><span><b data-t="secSafer"></b> — <span data-t="secSaferNote"></span></span></label>
+            <label class="switch"><input type="radio" name="seclvl" value="2"><span><b data-t="secSafest"></b> — <span data-t="secSafestNote"></span></span></label>
+            <p class="muted small" data-t="secRestart"></p>
+          </section>
+          <section class="card">
             <h3 data-t="fingerprint"></h3>
             <label class="switch"><input type="checkbox" id="s-fpstrict"><span data-t="fpStrict"></span></label>
             <p class="muted small" data-t="fpStrictNote"></p>
@@ -226,6 +233,11 @@
       <div class="card">
         <h3 data-t="fingerprint"></h3>
         <p id="fp" class="muted"></p>
+      </div>
+      <div class="card hidden" id="js-card">
+        <h3>JavaScript</h3>
+        <p id="js-state" class="muted"></p>
+        <button id="js-toggle" class="btn"></button>
       </div>
       <div class="card">
         <h3 data-t="cleaner"></h3>

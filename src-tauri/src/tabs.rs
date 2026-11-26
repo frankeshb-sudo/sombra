@@ -22,7 +22,7 @@ pub static ENGINE: OnceLock<Engine> = OnceLock::new();
 
 /// Argumentos del motor (WebView2/Chromium): proxy obligatorio, sin WebRTC por fuera de Tor,
 /// sin QUIC (UDP), sin precargas ni conexiones de fondo de Microsoft.
-pub fn browser_args(proxy_port: u16, strict: bool) -> String {
+pub fn browser_args(proxy_port: u16, strict: bool, level: u8) -> String {
     let proxy = format!("--proxy-server=socks5://127.0.0.1:{proxy_port}");
     let mut a: Vec<&str> = vec![
         "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,NetworkPrediction,InterestFeedContentSuggestions,OptimizationHints,MediaRouter,WebRtcHideLocalIpsWithMdns,AutofillServerCommunication,msEdgeEnhanceSecurityMode,msImplicitSignin,msDiagnosticDataForwarding",
@@ -44,7 +44,42 @@ pub fn browser_args(proxy_port: u16, strict: bool) -> String {
     if strict {
         a.push("--accept-lang=en-US,en");
     }
+    // Niveles "más seguro" y "el más seguro": JavaScript sin compilador JIT (ni WebAssembly),
+    // sin WebGL y sin vídeos ni audios que se reproducen solos. Se aplica al abrir Sombra.
+    if level >= 1 {
+        a.extend(["--js-flags=--jitless", "--disable-3d-apis", "--autoplay-policy=user-gesture-required"]);
+    }
     a.join(" ")
+}
+
+/* ---------- niveles de seguridad: JavaScript por web ---------- */
+
+/// ¿Puede esta dirección usar JavaScript? Normal: siempre. Más seguro: solo en webs cifradas
+/// (https o .onion), como Tor Browser. El más seguro: nunca. En todos los niveles, salvo las
+/// webs que el usuario haya permitido (y sus subdominios).
+pub fn js_allowed(sh: &Shared, u: &url::Url) -> bool {
+    let s = sh.settings.lock();
+    if s.security_level == 0 {
+        return true;
+    }
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    if s.js_allow.iter().any(|a| host == *a || host.ends_with(&format!(".{a}"))) {
+        return true;
+    }
+    s.security_level == 1 && (u.scheme() == "https" || host.ends_with(".onion"))
+}
+
+/// JavaScript activado o no en cada vista abierta (no se puede cambiar en una vista ya creada:
+/// si una web necesita lo contrario, la pestaña se vuelve a abrir con otra vista).
+static VIEW_JS: OnceLock<Mutex<std::collections::HashMap<u32, bool>>> = OnceLock::new();
+
+fn view_js() -> &'static Mutex<std::collections::HashMap<u32, bool>> {
+    VIEW_JS.get_or_init(Default::default)
+}
+
+/// ¿Tiene JavaScript la vista de esta pestaña? (None si no tiene vista).
+pub fn tab_js(id: u32) -> Option<bool> {
+    view_js().lock().get(&id).copied()
 }
 
 /// Configuración común del motor para la interfaz y todas las pestañas.
@@ -68,7 +103,7 @@ pub fn label(id: u32) -> String {
 }
 
 /// Script que se ejecuta en cada página (y en cada iframe) antes que el código de la web.
-fn privacy_script(fp_key: &str, strict: bool) -> String {
+fn privacy_script(fp_key: &str, strict: bool, yt: bool) -> String {
     r#"(() => {
   try {
     const hide = (o, k) => { try { delete o[k]; } catch (e) {} try { Object.defineProperty(o, k, { value: undefined, configurable: true }); } catch (e) {} };
@@ -294,10 +329,44 @@ fn privacy_script(fp_key: &str, strict: bool) -> String {
       if (window.speechSynthesis && window.SpeechSynthesis) wrap(SpeechSynthesis.prototype, 'getVoices', () => function () { return []; });
       if (window.MediaDevices) wrap(MediaDevices.prototype, 'enumerateDevices', () => function () { return Promise.resolve([]); });
     }
+
+    // Anuncios de YouTube (con el bloqueador activado). YouTube manda la lista de anuncios
+    // dentro de los datos del vídeo: se quita antes de que el reproductor la lea. Si aun así
+    // sale alguno, se salta al final y se pulsa "Saltar".
+    if (__YT__ && /(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)) {
+      const ADK = ['adPlacements', 'adSlots', 'playerAds', 'adBreakHeartbeatParams'];
+      const strip = (o, d) => {
+        if (!o || typeof o !== 'object' || d > 4) return o;
+        for (const k of ADK) if (k in o) { try { delete o[k]; } catch (e) {} }
+        for (const k of ['playerResponse', 'response']) if (o[k] && typeof o[k] === 'object') strip(o[k], d + 1);
+        if (Array.isArray(o)) for (const x of o) strip(x, d + 1);
+        return o;
+      };
+      wrap(JSON, 'parse', orig => function () { return strip(orig.apply(this, arguments), 0); });
+      if (window.Response) wrap(Response.prototype, 'json', orig => function () { return orig.apply(this, arguments).then(v => strip(v, 0)); });
+      for (const g of ['ytInitialPlayerResponse', 'ytInitialData']) {
+        let v;
+        try {
+          Object.defineProperty(window, g, { get() { return v; }, set(x) { v = strip(x, 0); }, configurable: true, enumerable: true });
+        } catch (e) {}
+      }
+      const skip = () => {
+        try {
+          const p = document.querySelector('.html5-video-player.ad-showing, .html5-video-player.ad-interrupting');
+          if (!p) return;
+          const vd = p.querySelector('video');
+          if (vd && isFinite(vd.duration) && vd.duration > 0) { vd.muted = true; vd.currentTime = vd.duration; }
+          const b = p.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
+          if (b) b.click();
+        } catch (e) {}
+      };
+      setInterval(skip, 500);
+    }
   } catch (e) {}
 })();"#
         .replace("__FPKEY__", fp_key)
         .replace("__STRICT__", if strict { "true" } else { "false" })
+        .replace("__YT__", if yt { "true" } else { "false" })
 }
 
 /// Convierte lo escrito en la barra en una URL (o búsqueda).
@@ -384,12 +453,23 @@ pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> 
             sh.tor.rotate_host(h);
         }
     }
+    // Si la vista abierta tiene JavaScript al revés de lo que toca a la nueva web (nivel de
+    // seguridad), se cierra y la pestaña se abre con una vista nueva (con otro número).
+    let mut id = id;
+    let js = js_allowed(sh, &parsed);
+    let existing = app.get_webview(&label(id));
+    if existing.is_some() && tab_js(id) != Some(js) {
+        match go_home(app, sh, id) {
+            Some(n) => id = n,
+            None => return Ok(()),
+        }
+    }
     // Se marca la web como "abierta por ti" ANTES de pedirla, para que el bloqueador no la corte.
     update_tab(sh, id, |t| {
         t.url = parsed.to_string();
         t.loading = true;
     });
-    if let Some(wv) = app.get_webview(&label(id)) {
+    if let Some(wv) = existing.filter(|_| tab_js(id) == Some(js)) {
         wv.navigate(parsed)?;
         return Ok(());
     }
@@ -410,8 +490,17 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
     let app_new = app.clone();
     let app_load = app.clone();
 
-    let builder = engine_setup(WebviewBuilder::new(label(id), WebviewUrl::External(url)))
-        .initialization_script_for_all_frames(privacy_script(&eng.fp_key, sh.settings.lock().fp_strict))
+    let js = js_allowed(sh, &url);
+    let (strict, level, yt) = {
+        let s = sh.settings.lock();
+        (s.fp_strict, s.security_level, s.blocking_enabled)
+    };
+    let mut builder = engine_setup(WebviewBuilder::new(label(id), WebviewUrl::External(url)));
+    if !js {
+        builder = builder.disable_javascript();
+    }
+    let builder = builder
+        .initialization_script_for_all_frames(privacy_script(&eng.fp_key, strict, yt))
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_navigation(move |u| {
             if !allowed_scheme(u) {
@@ -425,6 +514,17 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
         })
         .on_page_load(move |wv, payload| {
             let url = payload.url().to_string();
+            // Nivel de seguridad: si la página (un enlace, una redirección) necesita JavaScript
+            // al revés que esta vista, la pestaña se vuelve a abrir con una vista adecuada.
+            if matches!(payload.url().scheme(), "http" | "https") && tab_js(id).is_some_and(|j| j != js_allowed(&sh_load, payload.url())) {
+                let _ = wv.hide();
+                let (app2, sh2) = (app_load.clone(), sh_load.clone());
+                tauri::async_runtime::spawn(async move {
+                    let _ = navigate(&app2, &sh2, id, &url).await;
+                    layout(&app2, &sh2);
+                });
+                return;
+            }
             match payload.event() {
                 PageLoadEvent::Started => {
                     if sh_load.tabs.lock().active == Some(id) {
@@ -476,7 +576,22 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
         });
 
     let (x, y, w, h) = sh.tabs.lock().rect;
-    window.add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w.max(1.0), h.max(1.0)))?;
+    let view = window.add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w.max(1.0), h.max(1.0)))?;
+    view_js().lock().insert(id, js);
+    // Linux (WebKit): sin WebGL ni reproducción automática en los niveles altos. En Windows
+    // lo hacen los argumentos del motor (browser_args).
+    #[cfg(target_os = "linux")]
+    if level >= 1 {
+        let _ = view.with_webview(|pw| {
+            use webkit2gtk::{SettingsExt, WebViewExt};
+            if let Some(s) = pw.inner().settings() {
+                s.set_enable_webgl(false);
+                s.set_media_playback_requires_user_gesture(true);
+            }
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (&view, level);
     Ok(())
 }
 
@@ -582,6 +697,7 @@ pub async fn close(app: &AppHandle, sh: &Arc<Shared>, id: u32) -> anyhow::Result
     if let Some(wv) = app.get_webview(&label(id)) {
         let _ = wv.close();
     }
+    view_js().lock().remove(&id);
     let empty = {
         let mut t = sh.tabs.lock();
         let pos = t.list.iter().position(|x| x.id == id);
@@ -609,14 +725,16 @@ pub async fn close(app: &AppHandle, sh: &Arc<Shared>, id: u32) -> anyhow::Result
 /// La pestaña recibe un número nuevo (en el mismo sitio de la barra): así la vista
 /// vieja, que se cierra en segundo plano, no choca con la nueva ni puede cambiar
 /// la pestaña con eventos que lleguen tarde.
-pub fn go_home(app: &AppHandle, sh: &Shared, id: u32) {
+pub fn go_home(app: &AppHandle, sh: &Shared, id: u32) -> Option<u32> {
     if let Some(wv) = app.get_webview(&label(id)) {
         let _ = wv.close();
     }
+    view_js().lock().remove(&id);
+    let new_id;
     {
         let mut t = sh.tabs.lock();
-        let new_id = t.next;
-        let Some(tab) = t.list.iter_mut().find(|x| x.id == id) else { return };
+        new_id = t.next;
+        let tab = t.list.iter_mut().find(|x| x.id == id)?;
         *tab = TabInfo { id: new_id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false };
         t.next += 1;
         if t.active == Some(id) {
@@ -626,6 +744,7 @@ pub fn go_home(app: &AppHandle, sh: &Shared, id: u32) {
     sh.refresh_top_hosts();
     sh.stats.page_blocked.store(0, Ordering::Relaxed);
     emit_tabs(sh);
+    Some(new_id)
 }
 
 pub fn active_id(sh: &Shared) -> Option<u32> {

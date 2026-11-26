@@ -41,6 +41,7 @@
     "allow-vault-matches",
     "allow-vault-fill",
     "allow-cred-answer",
-    "allow-window-action"
+    "allow-window-action",
+    "allow-set-js-site"
   ]
 }

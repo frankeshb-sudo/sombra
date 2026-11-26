@@ -76,6 +76,10 @@ pub struct Settings {
     /// Protección reforzada contra la huella digital: las webs ven idioma inglés, hora UTC y
     /// un tamaño de ventana redondeado (como Tor Browser).
     pub fp_strict: bool,
+    /// Nivel de seguridad, como Tor Browser: 0 normal, 1 más seguro, 2 el más seguro.
+    pub security_level: u8,
+    /// Webs (dominios) donde el usuario permite JavaScript aunque el nivel lo bloquee.
+    pub js_allow: Vec<String>,
 }
 
 /// DuckDuckGo por su dirección dentro de la red Tor: ni el buscador ni ningún
@@ -107,6 +111,8 @@ impl Default for Settings {
             history_searches: false,
             vault_lock_min: 15,
             fp_strict: true,
+            security_level: 0,
+            js_allow: Vec::new(),
         }
     }
 }

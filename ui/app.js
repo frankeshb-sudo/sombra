@@ -162,11 +162,29 @@ async function refresh() {
 async function refreshPrivacy() {
   try {
     const p = await invoke('page_privacy');
+    renderJs(p);
     if (!p) { $('fp').textContent = t('fpNone'); return; }
     const kinds = Object.keys(p.kinds || {}).join(', ');
     $('fp').textContent = p.fp ? t('fpSome', { n: p.fp, k: kinds }) : t('fpNone');
-  } catch { $('fp').textContent = t('fpNone'); }
+  } catch { $('fp').textContent = t('fpNone'); renderJs(null); }
 }
+
+// Nivel de seguridad: JavaScript de la web abierta, con botón para permitirlo o bloquearlo.
+let jsInfo = null;
+function renderJs(p) {
+  jsInfo = p && p.level > 0 && p.host ? p : null;
+  $('js-card').classList.toggle('hidden', !jsInfo);
+  if (!jsInfo) return;
+  $('js-state').textContent = t(jsInfo.js ? 'jsOn' : 'jsOff', { host: jsInfo.host });
+  $('js-toggle').textContent = t(jsInfo.site_allowed ? 'jsBlock' : 'jsAllow', { host: jsInfo.host });
+  // Si está permitida solo por el nivel (más seguro + https), no hace falta el botón.
+  $('js-toggle').classList.toggle('hidden', jsInfo.js && !jsInfo.site_allowed);
+}
+$('js-toggle').onclick = async () => {
+  if (!jsInfo) return;
+  await invoke('set_js_site', { host: jsInfo.host, allow: !jsInfo.site_allowed }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]]));
+  setTimeout(refreshPrivacy, 1500);
+};
 
 function logText(l) {
   if (l.code && has('log_' + l.code)) {
@@ -257,6 +275,7 @@ function fillSettings() {
   $('s-engine-priv').textContent = n.text;
   $('s-engine-priv').className = 'priv ' + n.cls;
   document.querySelectorAll('input[name=hmode]').forEach(r => { r.checked = r.value === s.history_mode; });
+  document.querySelectorAll('input[name=seclvl]').forEach(r => { r.checked = Number(r.value) === (s.security_level || 0); });
   document.querySelectorAll('#s-accent .sw').forEach(b => b.classList.toggle('on', b.dataset.k === s.accent));
   const known = ENGINES.find(e => e[1] === s.search);
   $('s-engine').value = known ? s.search : 'custom';
@@ -560,6 +579,7 @@ $('tabbar').addEventListener('mousedown', (e) => {
   invoke('window_action', { action: e.detail === 2 ? 'max' : 'drag' });
 });
 document.querySelectorAll('input[name=hmode]').forEach(r => { r.onchange = () => save({ history_mode: r.value }); });
+document.querySelectorAll('input[name=seclvl]').forEach(r => { r.onchange = () => save({ security_level: Number(r.value) }); });
 $('s-engine').onchange = (e) => {
   const custom = e.target.value === 'custom';
   $('s-engine-custom').classList.toggle('hidden', !custom);

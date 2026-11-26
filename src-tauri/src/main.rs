@@ -176,6 +176,9 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         if let Some(v) = patch.get("fp_strict").and_then(|v| v.as_bool()) {
             s.fp_strict = v;
         }
+        if let Some(v) = patch.get("security_level").and_then(|v| v.as_u64()) {
+            s.security_level = v.min(2) as u8;
+        }
         if let Some(v) = patch.get("history_mode").and_then(|v| v.as_str()) {
             if ["off", "session", "save"].contains(&v) && s.history_mode != v {
                 s.history_mode = v.into();
@@ -194,7 +197,42 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
     sh.save_settings();
     if let Some(app) = sh.app.get() {
         tabs::layout(app, &sh);
+        refresh_js(app, sh.inner());
     }
+    Ok(json!(*sh.settings.lock()))
+}
+
+/// Tras cambiar el nivel de seguridad o los permisos de una web: si la pestaña activa tiene
+/// JavaScript al revés de lo que ahora le toca, se vuelve a abrir (con la misma dirección).
+fn refresh_js(app: &AppHandle, sh: &Arc<Shared>) {
+    let Some(id) = tabs::active_id(sh) else { return };
+    let Some(url) = sh.tabs.lock().list.iter().find(|t| t.id == id && t.has_view).map(|t| t.url.clone()) else { return };
+    let Ok(u) = url::Url::parse(&url) else { return };
+    if tabs::tab_js(id) == Some(tabs::js_allowed(sh, &u)) {
+        return;
+    }
+    let (app, sh) = (app.clone(), sh.clone());
+    tauri::async_runtime::spawn(async move {
+        let _ = tabs::navigate(&app, &sh, id, &url).await;
+    });
+}
+
+/// Permitir o volver a bloquear JavaScript en una web (cuando el nivel de seguridad lo bloquea).
+#[tauri::command]
+fn set_js_site(app: AppHandle, sh: Sh, host: String, allow: bool) -> Result<Value, String> {
+    let host = host.trim().trim_start_matches("www.").to_ascii_lowercase();
+    if host.is_empty() || host.len() > 253 || !host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+        return Err("web no válida".into());
+    }
+    {
+        let mut s = sh.settings.lock();
+        s.js_allow.retain(|h| *h != host);
+        if allow {
+            s.js_allow.push(host);
+        }
+    }
+    sh.save_settings();
+    refresh_js(&app, sh.inner());
     Ok(json!(*sh.settings.lock()))
 }
 
@@ -353,9 +391,29 @@ async fn page_privacy(app: AppHandle, sh: Sh<'_>) -> Result<Value, String> {
     if !has_view {
         return Ok(json!(null));
     }
-    let key = &tabs::ENGINE.get().map(|e| e.fp_key.clone()).unwrap_or_default();
-    let js = format!("(() => {{ const s = window['{key}']; return s ? s.read() : JSON.stringify({{ fp: 0, kinds: {{}} }}); }})()");
-    tabs::eval_tab(&app, id, js).await.map_err(e2s)
+    // Nivel de seguridad: si la web tiene JavaScript y si el usuario la ha permitido.
+    let url = sh.tabs.lock().list.iter().find(|t| t.id == id).map(|t| t.url.clone()).unwrap_or_default();
+    let host = url::Url::parse(&url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_ascii_lowercase())).unwrap_or_default();
+    let (level, allowed) = {
+        let s = sh.settings.lock();
+        (s.security_level, s.js_allow.iter().any(|h| *h == host))
+    };
+    let tab_js = tabs::tab_js(id).unwrap_or(true);
+    let mut v = if tab_js {
+        let key = &tabs::ENGINE.get().map(|e| e.fp_key.clone()).unwrap_or_default();
+        let js = format!("(() => {{ const s = window['{key}']; return s ? s.read() : JSON.stringify({{ fp: 0, kinds: {{}} }}); }})()");
+        tabs::eval_tab(&app, id, js).await.unwrap_or_else(|_| json!({ "fp": 0, "kinds": {} }))
+    } else {
+        // Sin JavaScript la web no puede intentar sacar la huella (y no se le pregunta nada).
+        json!({ "fp": 0, "kinds": {} })
+    };
+    if let Some(o) = v.as_object_mut() {
+        o.insert("js".into(), json!(tab_js));
+        o.insert("level".into(), json!(level));
+        o.insert("host".into(), json!(host));
+        o.insert("site_allowed".into(), json!(allowed));
+    }
+    Ok(v)
 }
 
 /* ---------- contraseñas ---------- */
@@ -548,6 +606,14 @@ fn main() {
     // Huella digital reforzada: las webs piden las páginas en inglés (cabecera Accept-Language).
     // Windows: argumentos del motor (browser_args). Linux: idiomas del motor WebKit (abajo).
     // Se aplica al abrir Sombra.
+    let level = shared.settings.lock().security_level;
+    // Linux (WebKit): niveles "más seguro" y "el más seguro" sin compilador JIT ni WebAssembly.
+    // El motor lee estas variables al arrancar sus procesos, así que van antes de crear nada.
+    #[cfg(target_os = "linux")]
+    if level >= 1 {
+        std::env::set_var("JSC_useJIT", "false");
+        std::env::set_var("JSC_useWasm", "false");
+    }
 
     tauri::Builder::default()
         .manage(shared.clone())
@@ -587,6 +653,7 @@ fn main() {
             vault_fill,
             cred_answer,
             window_action,
+            set_js_site,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -668,6 +735,65 @@ fn main() {
                 });
             }
 
+            // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").is_ok() {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    while !sh2.tor.is_ready() {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    let probe = "(() => JSON.stringify({ text: (document.body ? document.body.innerText : '').replace(/\\s+/g, ' ').slice(0, 160), wasm: typeof WebAssembly, webgl: !!document.createElement('canvas').getContext('webgl'), title: document.title }))()";
+                    let level = sh2.settings.lock().security_level;
+                    let paso = |app: AppHandle, sh: Arc<Shared>, nombre: &'static str, url: &'static str| async move {
+                        let id = match tabs::active_id(&sh) {
+                            Some(id) => { let _ = tabs::navigate(&app, &sh, id, url).await; tabs::active_id(&sh).unwrap_or(id) }
+                            None => tabs::new_tab(&app, &sh, Some(url.into())).await.unwrap_or(0),
+                        };
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        let id = tabs::active_id(&sh).unwrap_or(id);
+                        tabs::wait_loaded(&sh, id, 60).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                        let id = tabs::active_id(&sh).unwrap_or(id);
+                        let r = tokio::time::timeout(std::time::Duration::from_secs(8), tabs::eval_tab(&app, id, probe.into())).await;
+                        log::warn!("SECTEST nivel={level} {nombre}: pestaña={id} js={:?} sonda={r:?}", tabs::tab_js(id));
+                    };
+                    // SOMBRA_SECTEST=yt: solo la parte de YouTube.
+                    if std::env::var("SOMBRA_SECTEST").as_deref() != Ok("yt") {
+                        paso(app2.clone(), sh2.clone(), "https", "https://www.enable-javascript.com/").await;
+                        paso(app2.clone(), sh2.clone(), "http", "http://neverssl.com/").await;
+                        sh2.settings.lock().js_allow = vec!["enable-javascript.com".into()];
+                        paso(app2.clone(), sh2.clone(), "https permitida", "https://www.enable-javascript.com/").await;
+                        sh2.settings.lock().js_allow.clear();
+                    }
+                    // SOMBRA_SECTEST=levels: sin la parte de YouTube.
+                    if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("levels") {
+                        log::warn!("SECTEST youtube anuncios: omitido");
+                        return;
+                    }
+                    if let Some(id) = tabs::active_id(&sh2) {
+                        let _ = tabs::navigate(&app2, &sh2, id, "https://www.youtube.com/watch?v=jNQXAC9IVRw").await;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if let Some(id) = tabs::active_id(&sh2) {
+                        tabs::wait_loaded(&sh2, id, 60).await;
+                        // Se espera al título que ve Sombra (preguntar a la página mientras carga
+                        // cierra WebKit en WSL).
+                        for _ in 0..40 {
+                            if sh2.tabs.lock().list.iter().any(|t| t.id == id && t.title.contains("YouTube") && !t.loading) {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                        log::warn!("SECTEST nivel={level} youtube cargado: pestaña={id} js={:?}", tabs::tab_js(id));
+                        let y = "(() => { const p = window.ytInitialPlayerResponse; return JSON.stringify({ title: document.title, url: location.href.slice(0, 80), pr: !!p, ads: p ? ['adPlacements','playerAds','adSlots'].filter(k => k in p) : null, enScripts: [...document.scripts].filter(s => s.text.includes('adPlacements')).length, conPR: [...document.scripts].filter(s => s.text.includes('ytInitialPlayerResponse')).length, status: p && p.playabilityStatus ? p.playabilityStatus.status : null, adShowing: !!document.querySelector('.ad-showing') }); })()";
+                        let r = tokio::time::timeout(std::time::Duration::from_secs(8), tabs::eval_tab(&app2, id, y.into())).await;
+                        log::warn!("SECTEST nivel={level} youtube anuncios: {r:?}");
+                    }
+                });
+            }
+
             // 3) Bloqueador (cargar las listas tarda un par de segundos).
             let sh_b = sh.clone();
             std::thread::spawn(move || {
@@ -682,7 +808,7 @@ fn main() {
                 (0..12).map(|_| (b'a' + r.gen_range(0..26)) as char).collect()
             };
             let _ = tabs::ENGINE.set(tabs::Engine {
-                args: tabs::browser_args(proxy_port, fp_strict),
+                args: tabs::browser_args(proxy_port, fp_strict, level),
                 proxy_port,
                 data_dir: web_dir.clone(),
                 fp_key,

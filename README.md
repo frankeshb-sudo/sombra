@@ -10,7 +10,8 @@ Navegador **ligero y privado**: sin publicidad, con **Tor integrado**, elección
 |---|---|
 | IP oculta siempre | Todo el tráfico sale por Tor (Arti, integrado). Si Tor no funciona, **no hay conexión** (nunca usa la directa). |
 | País de salida | Selector en la barra: Alemania, Francia, EE. UU., etc. |
-| Sin publicidad | EasyList, EasyPrivacy, EasyList España y lista de avisos de cookies (motor adblock-rust). Bloqueo por red y ocultación de huecos. |
+| Sin publicidad | EasyList, EasyPrivacy, EasyList España y lista de avisos de cookies (motor adblock-rust). Bloqueo por red y ocultación de huecos. En YouTube se quita la lista de anuncios de los datos del vídeo (y si aun así sale uno, se salta). |
+| Niveles de seguridad | Como Tor Browser: *Normal*, *Más seguro* (sin JavaScript en webs http, JavaScript sin JIT ni WebAssembly, sin WebGL ni vídeos que se reproducen solos) y *El más seguro* (sin JavaScript en ninguna web). En el panel (☰) se puede permitir JavaScript en una web concreta. |
 | Sin fugas | WebRTC desactivado, sin QUIC/UDP, DNS por Tor, red local inaccesible desde las webs. |
 | Nada se guarda | Historial, cookies y caché solo en memoria; se borran al cerrar. |
 | Anti-huella digital | Detecta y engaña intentos de identificar tu equipo (canvas, WebGL, audio, fuentes). |
@@ -65,7 +66,9 @@ Instalador (opcional): `cargo install tauri-cli --version "^2"` y luego `cargo t
 - Por Tor algunas webs van más lentas y muestran más CAPTCHAs.
 - Las webs pueden notar que el motor es WebView2/Chromium. Contra la huella digital, el Tor Browser oficial sigue siendo más fuerte.
 - Huella reforzada (Ajustes, activada por defecto): idioma inglés, hora UTC, tamaño de página redondeado y sin listas de voces ni dispositivos. Limitación: el código que una web ejecuta en segundo plano (Web Workers) aún ve la zona horaria real.
-- Anuncios de YouTube: aún no (requiere scriptlets; previsto).
+- Anuncios de YouTube: funcionan quitando los anuncios de los datos del vídeo; si YouTube cambia su forma de mandarlos, puede dejar de funcionar hasta actualizar Sombra.
+- Niveles de seguridad: cuando una web necesita JavaScript al revés que la anterior, la pestaña se abre de nuevo (se pierde el botón Atrás de esa pestaña). Permitir JavaScript en una web también lo permite en los recuadros que esa web incluya.
+- Linux: la ventana lleva su propia barra (− □ ×) en lugar de la del sistema.
 - Las pestañas no tienen ninguna conexión con Sombra ni rastros de Tauri (Tauri va parcheado, ver `src-tauri/vendor/PARCHE.md`). Aun así, una web siempre puede notar que el motor es una vista web de sistema y no un navegador conocido.
 - Contraseñas: si olvidas la contraseña maestra **y** pierdes las 12 palabras, no hay forma de recuperarlas (así nadie más puede).
 - Previsto: favoritos e historial dentro de la bóveda, recuperación con llave USB / otro dispositivo / personas de confianza, versión Android.
