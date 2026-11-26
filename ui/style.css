@@ -40,6 +40,8 @@ button { cursor: pointer; }
 
 #top { background: var(--bar); flex: none; }
 #tabbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px 0; }
+#winctl { margin-left: auto; display: flex; gap: 2px; }
+#winctl.hidden { display: none; }
 .brand { color: var(--accent2); padding: 0 6px; display: flex; }
 .brand svg { width: 20px; height: 20px; fill: var(--accent2); stroke: none; }
 #tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 0 1 auto; }

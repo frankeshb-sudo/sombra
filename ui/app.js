@@ -252,6 +252,7 @@ function fillSettings() {
   $('s-bmbar').checked = s.show_bookmarks;
   $('s-cleanexit').checked = s.clean_on_exit;
   $('s-histsearch').checked = s.history_searches;
+  $('s-fpstrict').checked = s.fp_strict !== false;
   const n = privacyNote(s.search);
   $('s-engine-priv').textContent = n.text;
   $('s-engine-priv').className = 'priv ' + n.cls;
@@ -527,6 +528,12 @@ $('s-compact').onchange = (e) => save({ compact: e.target.checked });
 $('s-bmbar').onchange = (e) => save({ show_bookmarks: e.target.checked });
 $('s-cleanexit').onchange = (e) => save({ clean_on_exit: e.target.checked });
 $('s-histsearch').onchange = (e) => save({ history_searches: e.target.checked });
+$('s-fpstrict').onchange = (e) => save({ fp_strict: e.target.checked });
+// Botones de la ventana. En Windows ya los pone el sistema en la barra de título.
+if (!/Windows/.test(navigator.userAgent)) $('winctl').classList.remove('hidden');
+$('btn-min').onclick = () => invoke('window_action', { action: 'min' });
+$('btn-max').onclick = () => invoke('window_action', { action: 'max' });
+$('tabbar').addEventListener('dblclick', (e) => { if (e.target === $('tabbar') || e.target === $('tabs')) invoke('window_action', { action: 'max' }); });
 document.querySelectorAll('input[name=hmode]').forEach(r => { r.onchange = () => save({ history_mode: r.value }); });
 $('s-engine').onchange = (e) => {
   const custom = e.target.value === 'custom';

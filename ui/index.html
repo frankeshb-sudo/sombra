@@ -13,6 +13,10 @@
       <div class="brand" title="Sombra"><svg viewBox="0 0 24 24"><path d="M15.5 4.5a8 8 0 1 0 4 11.5 7 7 0 0 1-4-11.5z"/></svg></div>
       <div id="tabs" role="tablist"></div>
       <button id="btn-newtab" class="icon" data-t-title="newTab"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <div id="winctl" class="hidden">
+        <button id="btn-min" class="icon" data-t-title="winMin"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+        <button id="btn-max" class="icon" data-t-title="winMax"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
+      </div>
     </div>
     <div id="toolbar">
       <button id="btn-back" class="icon" data-t-title="back"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
@@ -98,6 +102,11 @@
             <label class="switch"><input type="checkbox" id="s-cleanexit"><span data-t="cleanOnExit"></span></label>
             <label class="switch"><input type="checkbox" id="s-histsearch"><span data-t="histSearches"></span></label>
             <button id="s-viewhist" class="btn" data-t="viewHistory"></button>
+          </section>
+          <section class="card">
+            <h3 data-t="fingerprint"></h3>
+            <label class="switch"><input type="checkbox" id="s-fpstrict"><span data-t="fpStrict"></span></label>
+            <p class="muted small" data-t="fpStrictNote"></p>
           </section>
           <section class="card" id="cleaner">
             <h3 data-t="cleaner"></h3>

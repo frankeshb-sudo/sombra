@@ -37,6 +37,7 @@ fn main() {
         "vault_matches",
         "vault_fill",
         "cred_answer",
+        "window_action",
     ];
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)))
         .expect("tauri build");

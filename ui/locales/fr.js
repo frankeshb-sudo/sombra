@@ -103,4 +103,8 @@ I18N.fr = {
   log_vaultBad: "Mot de passe principal incorrect",
   log_vaultBadPhrase: "Phrase de récupération incorrecte",
   vEmpty: "Aucun mot de passe enregistré pour l'instant. Sombra vous le proposera quand vous vous connecterez ou inscrirez sur un site.",
+  winMin: "Réduire",
+  winMax: "Agrandir / restaurer",
+  fpStrict: "Protection renforcée contre l'empreinte numérique",
+  fpStrictNote: "Comme Tor Browser : les sites voient l'anglais, l'heure UTC et une taille de page arrondie (avec des bordures), ainsi de nombreux utilisateurs de Sombra se ressemblent. Les sites s'afficheront en anglais et à l'heure de Greenwich. Le changement de langue s'applique au redémarrage de Sombra.",
 };

@@ -22,10 +22,11 @@ pub static ENGINE: OnceLock<Engine> = OnceLock::new();
 
 /// Argumentos del motor (WebView2/Chromium): proxy obligatorio, sin WebRTC por fuera de Tor,
 /// sin QUIC (UDP), sin precargas ni conexiones de fondo de Microsoft.
-pub fn browser_args(proxy_port: u16) -> String {
-    [
+pub fn browser_args(proxy_port: u16, strict: bool) -> String {
+    let proxy = format!("--proxy-server=socks5://127.0.0.1:{proxy_port}");
+    let mut a: Vec<&str> = vec![
         "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,NetworkPrediction,InterestFeedContentSuggestions,OptimizationHints,MediaRouter,WebRtcHideLocalIpsWithMdns,AutofillServerCommunication,msEdgeEnhanceSecurityMode,msImplicitSignin,msDiagnosticDataForwarding",
-        &format!("--proxy-server=socks5://127.0.0.1:{proxy_port}"),
+        &proxy,
         "--proxy-bypass-list=<-loopback>",
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
         "--webrtc-ip-handling-policy=disable_non_proxied_udp",
@@ -38,8 +39,12 @@ pub fn browser_args(proxy_port: u16) -> String {
         "--disable-sync",
         "--disable-breakpad",
         "--no-first-run",
-    ]
-    .join(" ")
+    ];
+    // Huella reforzada: las webs se piden en inglés (cabecera Accept-Language).
+    if strict {
+        a.push("--accept-lang=en-US,en");
+    }
+    a.join(" ")
 }
 
 /// Configuración común del motor para la interfaz y todas las pestañas.
@@ -63,7 +68,7 @@ pub fn label(id: u32) -> String {
 }
 
 /// Script que se ejecuta en cada página (y en cada iframe) antes que el código de la web.
-fn privacy_script(fp_key: &str) -> String {
+fn privacy_script(fp_key: &str, strict: bool) -> String {
     r#"(() => {
   try {
     const hide = (o, k) => { try { delete o[k]; } catch (e) {} try { Object.defineProperty(o, k, { value: undefined, configurable: true }); } catch (e) {} };
@@ -71,6 +76,36 @@ fn privacy_script(fp_key: &str) -> String {
     // vendor/PARCHE.md). En Windows, WebView2 añade window.chrome.webview: se quita.
     try { if (window.chrome && window.chrome.webview) delete window.chrome.webview; } catch (e) {}
     const J = JSON.stringify;
+    // Lo que Sombra cambia debe parecer igual que el original: mismo nombre, mismo número
+    // de argumentos, sin "prototype" y con toString() = "[native code]".
+    const NAT = new WeakMap();
+    const FTS = Function.prototype.toString;
+    const mask = (fn, orig) => { try { NAT.set(fn, orig); } catch (e) {} return fn; };
+    try {
+      const ts = { toString() { return FTS.call(NAT.get(this) || this); } }.toString;
+      mask(ts, FTS);
+      Object.defineProperty(Function.prototype, 'toString', { value: ts, writable: true, configurable: true });
+    } catch (e) {}
+    const wrap = (o, k, impl) => {
+      try {
+        const orig = o[k];
+        if (typeof orig !== 'function') return;
+        const f = impl(orig);
+        const fn = { m(...a) { return f.apply(this, a); } }.m;
+        Object.defineProperty(fn, 'name', { value: orig.name });
+        Object.defineProperty(fn, 'length', { value: orig.length });
+        const d = Object.getOwnPropertyDescriptor(o, k) || { writable: true, enumerable: false, configurable: true };
+        Object.defineProperty(o, k, { value: mask(fn, orig), writable: d.writable !== false, enumerable: !!d.enumerable, configurable: true });
+      } catch (e) {}
+    };
+    const getter = (o, k, get) => {
+      try {
+        const d = Object.getOwnPropertyDescriptor(o, k);
+        if (!d || !d.get) return;
+        const g = Object.getOwnPropertyDescriptor({ get [k]() { return get.call(this); } }, k).get;
+        Object.defineProperty(o, k, { get: mask(g, d.get), set: d.set, enumerable: d.enumerable, configurable: true });
+      } catch (e) {}
+    };
     // Contador de intentos de huella digital (lo lee Sombra con page_privacy).
     const st = { fp: 0, kinds: {} };
     // Contraseñas enviadas, esperando a que Sombra las recoja.
@@ -132,16 +167,11 @@ fn privacy_script(fp_key: &str) -> String {
     const note = (k) => { st.fp++; st.kinds[k] = (st.kinds[k] || 0) + 1; };
     const noise = (data) => { for (let i = 0; i < data.length; i += 97) { data[i] = data[i] ^ 1; } };
     const C2D = window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype;
-    if (C2D && C2D.getImageData) {
-      const orig = C2D.getImageData;
-      C2D.getImageData = function () { note('canvas'); const r = orig.apply(this, arguments); try { noise(r.data); } catch (e) {} return r; };
-    }
+    if (C2D) wrap(C2D, 'getImageData', orig => function () { note('canvas'); const r = orig.apply(this, arguments); try { noise(r.data); } catch (e) {} return r; });
     const HC = window.HTMLCanvasElement && HTMLCanvasElement.prototype;
-    if (HC) {
+    if (HC && C2D) {
       for (const m of ['toDataURL', 'toBlob']) {
-        const orig = HC[m];
-        if (!orig) continue;
-        HC[m] = function () {
+        wrap(HC, m, orig => function () {
           note('canvas');
           try {
             const ctx = this.getContext && this.getContext('2d');
@@ -151,34 +181,123 @@ fn privacy_script(fp_key: &str) -> String {
             }
           } catch (e) {}
           return orig.apply(this, arguments);
-        };
+        });
       }
     }
     for (const G of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
       if (!G) continue;
-      const orig = G.prototype.getParameter;
-      G.prototype.getParameter = function (p) {
+      wrap(G.prototype, 'getParameter', orig => function (p) {
         if (p === 37445) { note('webgl'); return 'Google Inc.'; }
         if (p === 37446) { note('webgl'); return 'ANGLE (Generic GPU)'; }
         return orig.apply(this, arguments);
-      };
+      });
     }
     const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    if (AC) {
-      const orig = AC.prototype.startRendering;
-      AC.prototype.startRendering = function () { note('audio'); return orig.apply(this, arguments); };
-    }
-    if (document.fonts && document.fonts.check) {
-      const orig = document.fonts.check.bind(document.fonts);
+    if (AC) wrap(AC.prototype, 'startRendering', orig => function () { note('audio'); return orig.apply(this, arguments); });
+    if (window.FontFaceSet) {
       let n = 0;
-      document.fonts.check = function () { if (++n === 20) note('fuentes'); return orig.apply(null, arguments); };
+      wrap(FontFaceSet.prototype, 'check', orig => function () { if (++n === 20) note('fuentes'); return orig.apply(this, arguments); });
     }
     if (navigator.getBattery) hide(Navigator.prototype, 'getBattery');
-    try { Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', { get: () => 4 }); } catch (e) {}
-    try { Object.defineProperty(Navigator.prototype, 'deviceMemory', { get: () => 8 }); } catch (e) {}
+    getter(Navigator.prototype, 'hardwareConcurrency', () => 4);
+    getter(Navigator.prototype, 'deviceMemory', () => 8);
+
+    // Protección reforzada (ajuste "fp_strict", activado por defecto), como Tor Browser:
+    // idioma inglés, hora UTC, pantalla = tamaño de la página (que Sombra redondea), sin
+    // lista de voces ni de dispositivos. Así muchos usuarios de Sombra parecen el mismo.
+    if (__STRICT__) {
+      const LOC = 'en-US', TZ = 'UTC';
+      const LANGS = Object.freeze([LOC, 'en']);
+      getter(Navigator.prototype, 'language', () => LOC);
+      getter(Navigator.prototype, 'languages', () => LANGS);
+      // Intl: idioma y zona horaria por defecto.
+      const opts = (o, tz) => {
+        if (!tz) return o;
+        if (o === undefined) return { timeZone: TZ };
+        if (o && typeof o === 'object' && o.timeZone === undefined) return Object.assign({}, o, { timeZone: TZ });
+        return o;
+      };
+      for (const name of ['DateTimeFormat', 'NumberFormat', 'Collator', 'PluralRules', 'RelativeTimeFormat', 'ListFormat', 'DisplayNames', 'Segmenter', 'DurationFormat']) {
+        const C = Intl[name];
+        if (typeof C !== 'function') continue;
+        const tz = name === 'DateTimeFormat';
+        const args = a => [a[0] === undefined ? LOC : a[0], opts(a[1], tz)].concat([].slice.call(a, 2));
+        const P = new Proxy(C, {
+          construct: (t, a, nt) => Reflect.construct(t, args(a), nt),
+          apply: (t, self, a) => Reflect.apply(t, self, args(a)),
+        });
+        mask(P, C);
+        try { Object.defineProperty(C.prototype, 'constructor', { value: P, writable: true, configurable: true }); } catch (e) {}
+        try { Object.defineProperty(Intl, name, { value: P, writable: true, configurable: true }); } catch (e) {}
+      }
+      // Fechas: todo en UTC, como si el equipo estuviera en Greenwich.
+      const OD = Date, DP = OD.prototype, gt = DP.getTime, realTZO = DP.getTimezoneOffset;
+      const U = { FullYear: 1, Month: 1, Date: 1, Day: 1, Hours: 1, Minutes: 1, Seconds: 1, Milliseconds: 1 };
+      for (const k in U) {
+        const g = DP['getUTC' + k];
+        wrap(DP, 'get' + k, () => function () { return g.call(this); });
+        const s = DP['setUTC' + k];
+        if (s) wrap(DP, 'set' + k, () => function () { return s.apply(this, arguments); });
+      }
+      wrap(DP, 'getTimezoneOffset', () => function () { return isNaN(gt.call(this)) ? NaN : 0; });
+      wrap(DP, 'getYear', () => function () { const y = DP.getUTCFullYear.call(this); return isNaN(y) ? NaN : y - 1900; });
+      const DN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const p2 = n => String(n).padStart(2, '0');
+      const yr = y => (y < 0 ? '-' + String(-y).padStart(6, '0') : String(y).padStart(4, '0'));
+      const dStr = d => DN[d.getUTCDay()] + ' ' + MN[d.getUTCMonth()] + ' ' + p2(d.getUTCDate()) + ' ' + yr(d.getUTCFullYear());
+      const tStr = d => p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()) + ':' + p2(d.getUTCSeconds()) + ' GMT+0000 (Coordinated Universal Time)';
+      const bad = d => isNaN(gt.call(d));
+      wrap(DP, 'toString', () => function () { return bad(this) ? 'Invalid Date' : dStr(this) + ' ' + tStr(this); });
+      wrap(DP, 'toDateString', () => function () { return bad(this) ? 'Invalid Date' : dStr(this); });
+      wrap(DP, 'toTimeString', () => function () { return bad(this) ? 'Invalid Date' : tStr(this); });
+      for (const k of ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString']) {
+        wrap(DP, k, orig => function (l, o) { return orig.call(this, l === undefined ? LOC : l, opts(o, true)); });
+      }
+      wrap(Number.prototype, 'toLocaleString', orig => function (l, o) { return orig.call(this, l === undefined ? LOC : l, o); });
+      wrap(String.prototype, 'localeCompare', orig => function (s, l, o) { return orig.call(this, s, l === undefined ? LOC : l, o); });
+      // Textos de fecha sin zona: el motor los toma como hora local; se pasan a UTC.
+      const realOff = t => { try { return realTZO.call(new OD(t)); } catch (e) { return 0; } };
+      const ZONED = /(?:Z|[+-]\d\d:?\d\d|GMT|UTC|\b[ECMP][SD]T)\s*(?:\([^)]*\))?\s*$/i;
+      const DATE_ONLY = /^\s*[+-]?\d{4,6}(?:-\d\d(?:-\d\d)?)?\s*$/;
+      wrap(OD, 'parse', orig => function (s) {
+        const str = String(s);
+        const t = orig.call(this, str);
+        if (isNaN(t) || ZONED.test(str) || DATE_ONLY.test(str)) return t;
+        return t - realOff(t) * 60000;
+      });
+      const PD = new Proxy(OD, {
+        construct: (t, a, nt) => {
+          if (a.length >= 2) return Reflect.construct(t, [OD.UTC.apply(null, a)], nt);
+          if (a.length === 1 && typeof a[0] === 'string') return Reflect.construct(t, [OD.parse(a[0])], nt);
+          return Reflect.construct(t, a, nt);
+        },
+        apply: () => DP.toString.call(new OD()),
+      });
+      mask(PD, OD);
+      try { Object.defineProperty(DP, 'constructor', { value: PD, writable: true, configurable: true }); } catch (e) {}
+      try { Object.defineProperty(window, 'Date', { value: PD, writable: true, configurable: true }); } catch (e) {}
+      // Temporal (API nueva de fechas): zona UTC por defecto.
+      const TN = window.Temporal && Temporal.Now;
+      if (TN) {
+        wrap(TN, 'timeZoneId', () => function () { return TZ; });
+        for (const k of ['zonedDateTimeISO', 'plainDateTimeISO', 'plainDateISO', 'plainTimeISO']) {
+          wrap(TN, k, orig => function (tz) { return orig.call(this, tz === undefined ? TZ : tz); });
+        }
+      }
+      // Pantalla y ventana: lo mismo que mide la página (Sombra redondea ese tamaño).
+      const top = (() => { try { return window.top.innerWidth >= 0 ? window.top : window; } catch (e) { return window; } })();
+      const W = () => top.innerWidth, H = () => top.innerHeight, Z = () => 0;
+      for (const [k, f] of [['width', W], ['height', H], ['availWidth', W], ['availHeight', H], ['availLeft', Z], ['availTop', Z], ['colorDepth', () => 24], ['pixelDepth', () => 24]]) getter(Screen.prototype, k, f);
+      for (const [k, f] of [['outerWidth', W], ['outerHeight', H], ['screenX', Z], ['screenY', Z], ['screenLeft', Z], ['screenTop', Z]]) getter(window, k, f);
+      // Voces de lectura en voz alta y dispositivos (cámaras, micros): listas vacías.
+      if (window.speechSynthesis && window.SpeechSynthesis) wrap(SpeechSynthesis.prototype, 'getVoices', () => function () { return []; });
+      if (window.MediaDevices) wrap(MediaDevices.prototype, 'enumerateDevices', () => function () { return Promise.resolve([]); });
+    }
   } catch (e) {}
 })();"#
         .replace("__FPKEY__", fp_key)
+        .replace("__STRICT__", if strict { "true" } else { "false" })
 }
 
 /// Convierte lo escrito en la barra en una URL (o búsqueda).
@@ -292,7 +411,7 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
     let app_load = app.clone();
 
     let builder = engine_setup(WebviewBuilder::new(label(id), WebviewUrl::External(url)))
-        .initialization_script_for_all_frames(privacy_script(&eng.fp_key))
+        .initialization_script_for_all_frames(privacy_script(&eng.fp_key, sh.settings.lock().fp_strict))
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_navigation(move |u| {
             if !allowed_scheme(u) {
@@ -424,7 +543,16 @@ pub fn layout(app: &AppHandle, sh: &Shared) {
         let t = sh.tabs.lock();
         (t.rect, t.active, t.list.iter().map(|x| x.id).collect::<Vec<_>>())
     };
-    let (x, y, w, h) = rect;
+    let (mut x, mut y, mut w, mut h) = rect;
+    // Huella reforzada: la página mide un múltiplo de 100 px (centrada), como el
+    // "letterboxing" de Tor Browser. Así el tamaño de la ventana no identifica a nadie.
+    if sh.settings.lock().fp_strict && w >= 200.0 && h >= 200.0 {
+        let (w2, h2) = ((w / 100.0).floor() * 100.0, (h / 100.0).floor() * 100.0);
+        x += ((w - w2) / 2.0).floor();
+        y += ((h - h2) / 2.0).floor();
+        w = w2;
+        h = h2;
+    }
     for id in ids {
         if let Some(wv) = app.get_webview(&label(id)) {
             if Some(id) == active && w > 1.0 && h > 1.0 {

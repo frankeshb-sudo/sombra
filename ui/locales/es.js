@@ -103,4 +103,8 @@ I18N.es = {
   log_vaultBad: "Contraseña maestra incorrecta",
   log_vaultBadPhrase: "Frase de recuperación incorrecta",
   vEmpty: "Todavía no hay contraseñas guardadas. Sombra te preguntará al entrar o registrarte en una web.",
+  winMin: "Minimizar",
+  winMax: "Maximizar / restaurar",
+  fpStrict: "Protección reforzada contra la huella digital",
+  fpStrictNote: "Como Tor Browser: las webs ven idioma inglés, hora UTC y un tamaño de página redondeado (con bordes), así muchos usuarios de Sombra parecen el mismo. Las webs se mostrarán en inglés y con la hora de Greenwich. El cambio de idioma se aplica al reiniciar Sombra.",
 };

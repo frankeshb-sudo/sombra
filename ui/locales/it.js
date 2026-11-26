@@ -103,4 +103,8 @@ I18N.it = {
   log_vaultBad: "Password principale errata",
   log_vaultBadPhrase: "Frase di recupero errata",
   vEmpty: "Nessuna password salvata. Sombra te lo chiederà quando accedi o ti registri su un sito.",
+  winMin: "Riduci a icona",
+  winMax: "Ingrandisci / ripristina",
+  fpStrict: "Protezione rafforzata contro l'impronta digitale",
+  fpStrictNote: "Come Tor Browser: i siti vedono inglese, ora UTC e una dimensione di pagina arrotondata (con bordi), così molti utenti di Sombra sembrano uguali. I siti appariranno in inglese e con l'ora di Greenwich. Il cambio di lingua si applica al riavvio di Sombra.",
 };

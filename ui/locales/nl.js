@@ -103,4 +103,8 @@ I18N.nl = {
   log_vaultBad: "Onjuist hoofdwachtwoord",
   log_vaultBadPhrase: "Onjuiste herstelzin",
   vEmpty: "Nog geen opgeslagen wachtwoorden. Sombra vraagt het als je inlogt of je registreert op een site.",
+  winMin: "Minimaliseren",
+  winMax: "Maximaliseren / herstellen",
+  fpStrict: "Sterkere bescherming tegen fingerprinting",
+  fpStrictNote: "Zoals Tor Browser: sites zien Engels, UTC-tijd en een afgeronde paginagrootte (met randen), zodat veel Sombra-gebruikers er hetzelfde uitzien. Sites worden in het Engels en met Greenwich-tijd getoond. De taalwijziging geldt na het herstarten van Sombra.",
 };

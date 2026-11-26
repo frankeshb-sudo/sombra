@@ -32,6 +32,11 @@ chacha20poly1305 = "0.10"
 bip39 = { version = "2", features = ["spanish"] }
 zeroize = "1"
 psl = "2"
+sys-locale = "0.3"
+
+# Linux: acceso al motor WebKit (idiomas que se piden a las webs).
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
 
 # Argon2 sin optimizar tarda varios segundos: se optimiza también en las pruebas.
 [profile.dev.package.argon2]

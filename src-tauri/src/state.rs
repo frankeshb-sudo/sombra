@@ -73,6 +73,9 @@ pub struct Settings {
     pub history_searches: bool,
     /// Minutos sin usar antes de bloquear las contraseñas (0 = nunca).
     pub vault_lock_min: u32,
+    /// Protección reforzada contra la huella digital: las webs ven idioma inglés, hora UTC y
+    /// un tamaño de ventana redondeado (como Tor Browser).
+    pub fp_strict: bool,
 }
 
 /// DuckDuckGo por su dirección dentro de la red Tor: ni el buscador ni ningún
@@ -103,6 +106,7 @@ impl Default for Settings {
             clean_on_exit: false,
             history_searches: false,
             vault_lock_min: 15,
+            fp_strict: true,
         }
     }
 }

@@ -173,6 +173,9 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         if let Some(v) = patch.get("vault_lock_min").and_then(|v| v.as_u64()) {
             s.vault_lock_min = v.min(240) as u32;
         }
+        if let Some(v) = patch.get("fp_strict").and_then(|v| v.as_bool()) {
+            s.fp_strict = v;
+        }
         if let Some(v) = patch.get("history_mode").and_then(|v| v.as_str()) {
             if ["off", "session", "save"].contains(&v) && s.history_mode != v {
                 s.history_mode = v.into();
@@ -189,7 +192,27 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         _ => {}
     }
     sh.save_settings();
+    if let Some(app) = sh.app.get() {
+        tabs::layout(app, &sh);
+    }
     Ok(json!(*sh.settings.lock()))
+}
+
+/// Botones de la ventana: "min" (minimizar) o "max" (maximizar / restaurar).
+#[tauri::command]
+fn window_action(app: AppHandle, action: String) -> Result<(), String> {
+    let w = app.get_window("main").ok_or("sin ventana")?;
+    match action.as_str() {
+        "min" => w.minimize().map_err(e2s),
+        "max" => {
+            if w.is_maximized().map_err(e2s)? {
+                w.unmaximize().map_err(e2s)
+            } else {
+                w.maximize().map_err(e2s)
+            }
+        }
+        _ => Err("acción desconocida".into()),
+    }
 }
 
 /// Historial, del más reciente al más antiguo, filtrado por texto.
@@ -501,6 +524,13 @@ fn main() {
 
     let shared = Shared::new(data_dir.clone());
 
+    // Idiomas reales del sistema, para la interfaz de Sombra (las webs pueden ver otros).
+    let sys_langs: Vec<String> = sys_locale::get_locales().collect();
+    let fp_strict = shared.settings.lock().fp_strict;
+    // Huella digital reforzada: las webs piden las páginas en inglés (cabecera Accept-Language).
+    // Windows: argumentos del motor (browser_args). Linux: idiomas del motor WebKit (abajo).
+    // Se aplica al abrir Sombra.
+
     tauri::Builder::default()
         .manage(shared.clone())
         .invoke_handler(tauri::generate_handler![
@@ -538,6 +568,7 @@ fn main() {
             vault_matches,
             vault_fill,
             cred_answer,
+            window_action,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -603,6 +634,13 @@ fn main() {
                     let t = "(() => JSON.stringify({ g: Object.getOwnPropertyNames(window).filter(k => /tauri|ipc|wry|webview|messageHandlers/i.test(k)), isTauri: 'isTauri' in window, internals: '__TAURI_INTERNALS__' in window, ipc: 'ipc' in window, webkitHandlers: !!(window.webkit && window.webkit.messageHandlers), chromeWebview: !!(window.chrome && window.chrome.webview) }))()";
                     let r = tabs::eval_tab(&app2, id, t.into()).await;
                     log::warn!("SELFTEST rastros: {r:?}");
+                    // ¿Qué huella ve la web? (con la protección reforzada activada)
+                    let f = "(() => { window.__h = 'esperando'; const urls = ['https://echo.hoppscotch.io/', 'https://postman-echo.com/headers', 'https://httpbin.org/headers']; const go = i => i >= urls.length ? Promise.reject('sin respuesta') : fetch(urls[i]).then(r => r.ok ? r.text() : go(i + 1), () => go(i + 1)); go(0).then(t => { const m = /accept-language\\x22\\s*:\\s*\\x22([^\\x22]*)/i.exec(t); window.__h = m ? m[1] : t.slice(0, 300); }).catch(e => { window.__h = 'error ' + e; }); const d = new Date(2020, 0, 1, 12, 30); return JSON.stringify({ lang: navigator.language, langs: navigator.languages, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, loc: Intl.DateTimeFormat().resolvedOptions().locale, off: new Date().getTimezoneOffset(), hours: d.getHours(), str: d.toString(), parse: new Date('2020-01-01T12:00').toISOString(), screen: [screen.width, screen.height, innerWidth, innerHeight, outerWidth], native: [Date.prototype.getHours.toString(), Function.prototype.toString.toString(), Object.getOwnPropertyDescriptor(Navigator.prototype, 'language').get.toString()], proto: 'prototype' in Date.prototype.getHours, dateFn: Date.toString(), inst: new Date() instanceof Date, cores: navigator.hardwareConcurrency }); })()";
+                    let r = tabs::eval_tab(&app2, id, f.into()).await;
+                    log::warn!("SELFTEST huella: {r:?}");
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    let r = tabs::eval_tab(&app2, id, "(() => String(window.__h))()".into()).await;
+                    log::warn!("SELFTEST Accept-Language: {r:?}");
                     let js = "(() => { document.querySelector('#username').value = 'tomsmith'; document.querySelector('#password').value = 'SuperSecretPassword!'; document.querySelector('button[type=submit]').click(); return 'ok'; })()";
                     let r = tabs::eval_tab(&app2, id, js.into()).await;
                     log::warn!("SELFTEST relleno: {r:?}");
@@ -626,7 +664,7 @@ fn main() {
                 (0..12).map(|_| (b'a' + r.gen_range(0..26)) as char).collect()
             };
             let _ = tabs::ENGINE.set(tabs::Engine {
-                args: tabs::browser_args(proxy_port),
+                args: tabs::browser_args(proxy_port, fp_strict),
                 proxy_port,
                 data_dir: web_dir.clone(),
                 fp_key,
@@ -637,7 +675,9 @@ fn main() {
                 .min_inner_size(420.0, 360.0)
                 .build()?;
             let size = window.inner_size()?;
-            let ui = tabs::engine_setup(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into()))).auto_resize();
+            let ui = tabs::engine_setup(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())))
+                .auto_resize()
+                .initialization_script(format!("window.__SYS_LANGS = {};", json!(sys_langs)));
             // Solo en pruebas: guarda los errores de la interfaz para poder diagnosticarlos.
             #[cfg(debug_assertions)]
             let ui = ui.initialization_script(
@@ -653,7 +693,20 @@ fn main() {
                     log::warn!("UIDIAG {r:?}");
                 });
             }
-            window.add_child(ui, LogicalPosition::new(0.0, 0.0), size)?;
+            let ui_view = window.add_child(ui, LogicalPosition::new(0.0, 0.0), size)?;
+            // Linux: la interfaz y las pestañas comparten el motor; sus idiomas se fijan aquí,
+            // antes de abrir ninguna web.
+            #[cfg(target_os = "linux")]
+            if fp_strict {
+                let _ = ui_view.with_webview(|pw| {
+                    use webkit2gtk::{WebContextExt, WebViewExt};
+                    if let Some(ctx) = pw.inner().context() {
+                        ctx.set_preferred_languages(&["en-US", "en"]);
+                    }
+                });
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = &ui_view;
 
             // 5) Puerta de control para IAs, si estaba activada.
             if sh.settings.lock().control_enabled {

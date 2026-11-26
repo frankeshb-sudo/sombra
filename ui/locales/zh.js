@@ -103,4 +103,8 @@ I18N.zh = {
   log_vaultBad: "主密码错误",
   log_vaultBadPhrase: "恢复短语错误",
   vEmpty: "还没有保存的密码。在网站登录或注册时，Sombra 会询问你。",
+  winMin: "最小化",
+  winMax: "最大化 / 还原",
+  fpStrict: "增强的指纹保护",
+  fpStrictNote: "与 Tor Browser 相同：网站看到的是英语、UTC 时间和取整的页面尺寸（带边框），这样许多 Sombra 用户看起来都一样。网站将以英语和格林尼治时间显示。语言更改在重启 Sombra 后生效。",
 };

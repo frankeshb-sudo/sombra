@@ -103,4 +103,8 @@ I18N.de = {
   log_vaultBad: "Falsches Master-Passwort",
   log_vaultBadPhrase: "Falsche Wiederherstellungsphrase",
   vEmpty: "Noch keine gespeicherten Passwörter. Sombra fragt dich, wenn du dich auf einer Website anmeldest oder registrierst.",
+  winMin: "Minimieren",
+  winMax: "Maximieren / wiederherstellen",
+  fpStrict: "Verstärkter Schutz vor Fingerprinting",
+  fpStrictNote: "Wie Tor Browser: Websites sehen Englisch, UTC-Zeit und eine gerundete Seitengröße (mit Rändern), so sehen viele Sombra-Nutzer gleich aus. Websites erscheinen auf Englisch und mit Greenwich-Zeit. Die Sprachänderung gilt nach einem Neustart von Sombra.",
 };

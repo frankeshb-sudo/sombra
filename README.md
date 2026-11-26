@@ -64,6 +64,7 @@ Instalador (opcional): `cargo install tauri-cli --version "^2"` y luego `cargo t
 
 - Por Tor algunas webs van más lentas y muestran más CAPTCHAs.
 - Las webs pueden notar que el motor es WebView2/Chromium. Contra la huella digital, el Tor Browser oficial sigue siendo más fuerte.
+- Huella reforzada (Ajustes, activada por defecto): idioma inglés, hora UTC, tamaño de página redondeado y sin listas de voces ni dispositivos. Limitación: el código que una web ejecuta en segundo plano (Web Workers) aún ve la zona horaria real.
 - Anuncios de YouTube: aún no (requiere scriptlets; previsto).
 - Las pestañas no tienen ninguna conexión con Sombra ni rastros de Tauri (Tauri va parcheado, ver `src-tauri/vendor/PARCHE.md`). Aun así, una web siempre puede notar que el motor es una vista web de sistema y no un navegador conocido.
 - Contraseñas: si olvidas la contraseña maestra **y** pierdes las 12 palabras, no hay forma de recuperarlas (así nadie más puede).

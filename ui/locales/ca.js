@@ -103,4 +103,8 @@ I18N.ca = {
   log_vaultBad: "Contrasenya mestra incorrecta",
   log_vaultBadPhrase: "Frase de recuperació incorrecta",
   vEmpty: "Encara no hi ha contrasenyes desades. Sombra t'ho preguntarà quan entris o et registris en una web.",
+  winMin: "Minimitza",
+  winMax: "Maximitza / restaura",
+  fpStrict: "Protecció reforçada contra l'empremta digital",
+  fpStrictNote: "Com Tor Browser: les webs veuen anglès, hora UTC i una mida de pàgina arrodonida (amb vores), així molts usuaris de Sombra semblen el mateix. Les webs es mostraran en anglès i amb l'hora de Greenwich. El canvi d'idioma s'aplica en reiniciar Sombra.",
 };

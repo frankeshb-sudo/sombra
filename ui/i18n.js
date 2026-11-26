@@ -11,7 +11,10 @@ let LANG = 'es';
 
 function pickLang(setting) {
   if (setting && setting !== 'auto' && I18N[setting]) return setting;
-  for (const l of navigator.languages || [navigator.language || 'es']) {
+  // Idiomas reales del sistema (los da Sombra): navigator.languages puede estar en inglés
+  // a propósito, por la protección contra la huella digital.
+  const sys = Array.isArray(window.__SYS_LANGS) ? window.__SYS_LANGS : [];
+  for (const l of sys.concat(navigator.languages || [navigator.language || 'es'])) {
     const c = String(l).toLowerCase().slice(0, 2);
     if (I18N[c]) return c;
   }
