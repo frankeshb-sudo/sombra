@@ -120,4 +120,11 @@ I18N.ja = {
   jsOff: "{host} で JavaScript がブロックされています。",
   jsAllow: "{host} で JavaScript を許可",
   jsBlock: "{host} の JavaScript を再びブロック",
+  httpsOnly: "HTTPS-Only モード",
+  httpsOnlyNote: "サイトは常に暗号化（https）で開きます。対応していないサイトは、暗号化なしで開く前に Sombra が警告します。",
+  hwTitle: "このサイトには安全なバージョンがありません",
+  hwText: "{host} は暗号化（https）で開けません。続行すると、Tor の出口ノードがこのサイトで送受信する内容を見たり変更したりできます。パスワードや個人情報を入力しないでください。",
+  hwContinue: "暗号化なしで続行",
+  hwBack: "戻る",
+  log_httpAllowed: "暗号化なしで開きました（http）: {host}",
 };

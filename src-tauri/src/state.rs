@@ -29,6 +29,8 @@ pub struct TabInfo {
     pub title: String,
     pub loading: bool,
     pub has_view: bool,
+    /// Modo solo HTTPS: la web no tiene versión cifrada y se muestra el aviso en lugar de abrirla.
+    pub https_warn: bool,
 }
 
 #[derive(Default)]
@@ -80,6 +82,9 @@ pub struct Settings {
     pub security_level: u8,
     /// Webs (dominios) donde el usuario permite JavaScript aunque el nivel lo bloquee.
     pub js_allow: Vec<String>,
+    /// Modo solo HTTPS (como Tor Browser): las webs http se abren por https; si no tienen
+    /// versión cifrada, Sombra avisa antes de abrirlas sin cifrar.
+    pub https_only: bool,
 }
 
 /// DuckDuckGo por su dirección dentro de la red Tor: ni el buscador ni ningún
@@ -113,6 +118,7 @@ impl Default for Settings {
             fp_strict: true,
             security_level: 0,
             js_allow: Vec::new(),
+            https_only: true,
         }
     }
 }
@@ -152,6 +158,10 @@ pub struct Shared {
     pub app: OnceLock<AppHandle>,
     pub data_dir: PathBuf,
     pub vault: crate::vault::Vault,
+    /// Webs que el usuario ha decidido abrir sin cifrar (solo mientras Sombra está abierto).
+    pub http_ok: Mutex<HashSet<String>>,
+    /// Webs que ya sabemos que tienen https (solo mientras Sombra está abierto).
+    pub https_known: Mutex<HashSet<String>>,
 }
 
 pub fn now() -> u64 {
@@ -184,6 +194,8 @@ impl Shared {
             app: OnceLock::new(),
             vault: crate::vault::Vault::new(&data_dir),
             data_dir,
+            http_ok: Mutex::new(HashSet::new()),
+            https_known: Mutex::new(HashSet::new()),
         })
     }
 
@@ -193,6 +205,11 @@ impl Shared {
 
     pub fn set_blocker(&self, b: Blocker) {
         *self.blocker.write() = Some(Arc::new(b));
+    }
+
+    /// ¿Ha aceptado el usuario abrir esta web (o su dominio) sin cifrar?
+    pub fn http_allowed(&self, host: &str) -> bool {
+        self.http_ok.lock().iter().any(|a| host == a || host.ends_with(&format!(".{a}")))
     }
 
     /// Hosts de las webs abiertas en las pestañas: nunca se bloquean.

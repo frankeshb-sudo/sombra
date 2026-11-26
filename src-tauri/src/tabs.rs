@@ -75,6 +75,87 @@ pub fn js_allowed(sh: &Shared, u: &url::Url) -> bool {
     s.security_level == 1 && (u.scheme() == "https" || host.ends_with(".onion"))
 }
 
+/* ---------- modo solo HTTPS ---------- */
+
+/// ¿Hay que pasar esta dirección a https? Solo webs http normales: los .onion ya van cifrados
+/// dentro de Tor y la red local está bloqueada de todas formas.
+pub fn needs_upgrade(sh: &Shared, u: &url::Url) -> bool {
+    if u.scheme() != "http" || !sh.settings.lock().https_only {
+        return false;
+    }
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    !host.is_empty() && !host.ends_with(".onion") && !crate::proxy::is_local(&host) && !sh.http_allowed(&host)
+}
+
+/// Versión https de una dirección http, si la web la tiene. Se comprueba de verdad: conexión
+/// al puerto 443 por Tor (por el mismo circuito que usará la web) y saludo TLS con un
+/// certificado válido para esa web. Si falla (puerto cerrado, sin cifrado, certificado caducado
+/// o de otra web) o la dirección usa otro puerto, devuelve `None` y Sombra muestra el aviso.
+async fn https_version(sh: &Shared, u: &url::Url) -> Option<url::Url> {
+    if u.port().is_some() {
+        return None;
+    }
+    let host = u.host_str()?.to_ascii_lowercase();
+    if !sh.https_known.lock().contains(&host) {
+        if !tls_ok(sh, &host).await {
+            return None;
+        }
+        sh.https_known.lock().insert(host);
+    }
+    let mut h = u.clone();
+    h.set_scheme("https").ok()?;
+    Some(h)
+}
+
+/// ¿Responde la web por https con un certificado válido? (raíces de Mozilla, webpki-roots).
+async fn tls_ok(sh: &Shared, host: &str) -> bool {
+    static CFG: OnceLock<Option<Arc<rustls::ClientConfig>>> = OnceLock::new();
+    let cfg = CFG.get_or_init(|| {
+        let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .ok()
+            .map(|b| Arc::new(b.with_root_certificates(roots).with_no_client_auth()))
+    });
+    let (Some(cfg), Ok(name)) = (cfg.clone(), rustls::pki_types::ServerName::try_from(host.to_string())) else {
+        return false;
+    };
+    let check = async {
+        let (stream, _) = sh.tor.connect(host, 443).await.ok()?;
+        tokio_rustls::TlsConnector::from(cfg).connect(name, stream).await.ok()
+    };
+    matches!(tokio::time::timeout(Duration::from_secs(25), check).await, Ok(Some(_)))
+}
+
+/// Evita pasar a https dos veces la misma carga (llega el aviso de inicio y el de fin).
+static UPGRADING: OnceLock<Mutex<std::collections::HashMap<u32, (String, std::time::Instant)>>> = OnceLock::new();
+
+fn first_upgrade(id: u32, url: &str) -> bool {
+    let mut m = UPGRADING.get_or_init(Default::default).lock();
+    m.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(5));
+    if let Some((u, t)) = m.get(&id) {
+        if u == url && t.elapsed() < Duration::from_secs(5) {
+            return false;
+        }
+    }
+    m.insert(id, (url.to_string(), std::time::Instant::now()));
+    true
+}
+
+/// La web no tiene https: la pestaña se queda sin vista y la interfaz muestra el aviso
+/// ("Continuar sin cifrar" / "Volver").
+fn show_https_warn(app: &AppHandle, sh: &Shared, id: u32, u: &url::Url) {
+    let id = if app.get_webview(&label(id)).is_some() { go_home(app, sh, id) } else { Some(id) };
+    if let Some(id) = id {
+        update_tab(sh, id, |t| {
+            t.url = u.to_string();
+            t.title = u.host_str().unwrap_or("").to_string();
+            t.loading = false;
+            t.https_warn = true;
+        });
+    }
+}
+
 /// JavaScript activado o no en cada vista abierta (no se puede cambiar en una vista ya creada:
 /// si una web necesita lo contrario, la pestaña se vuelve a abrir con otra vista).
 static VIEW_JS: OnceLock<Mutex<std::collections::HashMap<u32, bool>>> = OnceLock::new();
@@ -477,7 +558,7 @@ pub async fn new_tab(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>) -> 
         let mut t = sh.tabs.lock();
         let id = t.next;
         t.next += 1;
-        t.list.push(TabInfo { id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false });
+        t.list.push(TabInfo { id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false });
         t.active = Some(id);
         id
     };
@@ -491,11 +572,39 @@ pub async fn new_tab(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>) -> 
 
 /// Navega una pestaña a una URL. Crea la vista web si todavía no existe.
 pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> anyhow::Result<()> {
+    // Un aviso tardío de una vista ya cerrada (pestaña cerrada o reabierta con otro número)
+    // no debe crear una vista nueva para una pestaña que ya no existe.
+    if !sh.tabs.lock().list.iter().any(|t| t.id == id) {
+        return Ok(());
+    }
     let search = sh.settings.lock().search.clone();
     let target = normalize_input(raw, &search);
-    let parsed = url::Url::parse(&target).map_err(|e| anyhow::anyhow!("Dirección no válida: {e}"))?;
+    let mut parsed = url::Url::parse(&target).map_err(|e| anyhow::anyhow!("Dirección no válida: {e}"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         anyhow::bail!("Solo se permiten direcciones http y https");
+    }
+    // Modo solo HTTPS: se abre la versión cifrada; si no existe, se avisa en lugar de abrirla.
+    // Una web escrita sin "https://" (ejemplo.com) pasa por la misma comprobación, para poder
+    // ofrecer el aviso si su https no funciona (en vez de quedarse en un error de certificado).
+    let typed_bare = target.strip_prefix("https://") == Some(raw.trim());
+    if typed_bare && parsed.port().is_none() && !sh.https_known.lock().contains(&parsed.host_str().unwrap_or("").to_ascii_lowercase()) {
+        let mut h = parsed.clone();
+        if h.set_scheme("http").is_ok() && needs_upgrade(sh, &h) {
+            parsed = h;
+        }
+    }
+    if needs_upgrade(sh, &parsed) {
+        update_tab(sh, id, |t| {
+            t.loading = true;
+            t.https_warn = false;
+        });
+        match https_version(sh, &parsed).await {
+            Some(u) => parsed = u,
+            None => {
+                show_https_warn(app, sh, id, &parsed);
+                return Ok(());
+            }
+        }
     }
     // Cada búsqueda sale por un circuito de Tor nuevo: el buscador no puede
     // relacionar una búsqueda con la anterior.
@@ -507,6 +616,10 @@ pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> 
     }
     // Si la vista abierta tiene JavaScript al revés de lo que toca a la nueva web (nivel de
     // seguridad), se cierra y la pestaña se abre con una vista nueva (con otro número).
+    // La comprobación de https tarda: la pestaña pudo cerrarse mientras tanto.
+    if !sh.tabs.lock().list.iter().any(|t| t.id == id) {
+        return Ok(());
+    }
     let mut id = id;
     let js = js_allowed(sh, &parsed);
     let existing = app.get_webview(&label(id));
@@ -520,6 +633,7 @@ pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> 
     update_tab(sh, id, |t| {
         t.url = parsed.to_string();
         t.loading = true;
+        t.https_warn = false;
     });
     if let Some(wv) = existing.filter(|_| tab_js(id) == Some(js)) {
         wv.navigate(parsed)?;
@@ -569,6 +683,18 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
         })
         .on_page_load(move |wv, payload| {
             let url = payload.url().to_string();
+            // Modo solo HTTPS: un enlace o una redirección a http (el proxy ya ha cortado la
+            // conexión sin cifrar) se abre por https, o se muestra el aviso.
+            if needs_upgrade(&sh_load, payload.url()) {
+                if first_upgrade(id, &url) {
+                    let (app2, sh2) = (app_load.clone(), sh_load.clone());
+                    tauri::async_runtime::spawn(async move {
+                        let _ = navigate(&app2, &sh2, id, &url).await;
+                        layout(&app2, &sh2);
+                    });
+                }
+                return;
+            }
             // Nivel de seguridad: si la página (un enlace, una redirección) necesita JavaScript
             // al revés que esta vista, la pestaña se vuelve a abrir con una vista adecuada.
             if matches!(payload.url().scheme(), "http" | "https") && tab_js(id).is_some_and(|j| j != js_allowed(&sh_load, payload.url())) {
@@ -790,7 +916,7 @@ pub fn go_home(app: &AppHandle, sh: &Shared, id: u32) -> Option<u32> {
         let mut t = sh.tabs.lock();
         new_id = t.next;
         let tab = t.list.iter_mut().find(|x| x.id == id)?;
-        *tab = TabInfo { id: new_id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false };
+        *tab = TabInfo { id: new_id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false };
         t.next += 1;
         if t.active == Some(id) {
             t.active = Some(new_id);

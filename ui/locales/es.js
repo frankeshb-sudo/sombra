@@ -120,4 +120,11 @@ I18N.es = {
   jsOff: "JavaScript bloqueado en {host}.",
   jsAllow: "Permitir JavaScript en {host}",
   jsBlock: "Volver a bloquear JavaScript en {host}",
+  httpsOnly: "Modo solo HTTPS",
+  httpsOnlyNote: "Las webs se abren siempre cifradas (https). Si una web no lo permite, Sombra avisa antes de abrirla sin cifrar.",
+  hwTitle: "Esta web no tiene versión segura",
+  hwText: "{host} no se puede abrir cifrada (https). Si continúas, el nodo de salida de Tor podrá ver y cambiar lo que envíes y recibas en esta web. No escribas contraseñas ni datos personales.",
+  hwContinue: "Continuar sin cifrar",
+  hwBack: "Volver",
+  log_httpAllowed: "Abierta sin cifrar (http): {host}",
 };

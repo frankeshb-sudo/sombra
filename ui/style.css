@@ -92,6 +92,13 @@ html.frameless main { padding: 0 4px 4px; background: var(--bar2); }
 #content { flex: 1; position: relative; min-width: 0; }
 #newtab { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 8vh 16px 24px; }
 .hero { text-align: center; width: min(560px, 100%); }
+#httpswarn { position: absolute; inset: 0; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 10vh 16px 24px; }
+.hw-box { width: min(560px, 100%); background: var(--bar2); border: 1px solid var(--warn); border-radius: 14px; padding: 24px; text-align: center; }
+.hw-box h2 { font-weight: 500; font-size: 20px; margin: 8px 0; }
+.hw-box p { line-height: 1.5; }
+.hw-icon { width: 44px; height: 44px; fill: none; stroke: var(--warn); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+#hw-url { word-break: break-all; }
+.hw-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .hero .moon { width: 64px; height: 64px; fill: var(--accent2); stroke: none; }
 .hero h1 { font-weight: 500; font-size: 28px; margin: 6px 0 4px; letter-spacing: .5px; }
 #tor-bar { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 8px auto 18px; width: 60%; }

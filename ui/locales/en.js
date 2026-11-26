@@ -120,4 +120,11 @@ I18N.en = {
   jsOff: "JavaScript blocked on {host}.",
   jsAllow: "Allow JavaScript on {host}",
   jsBlock: "Block JavaScript on {host} again",
+  httpsOnly: "HTTPS-Only mode",
+  httpsOnlyNote: "Websites always open encrypted (https). If a website doesn't support it, Sombra warns you before opening it unencrypted.",
+  hwTitle: "This website has no secure version",
+  hwText: "{host} can't be opened encrypted (https). If you continue, the Tor exit node will be able to see and change what you send and receive on this website. Don't enter passwords or personal data.",
+  hwContinue: "Continue unencrypted",
+  hwBack: "Go back",
+  log_httpAllowed: "Opened unencrypted (http): {host}",
 };

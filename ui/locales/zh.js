@@ -120,4 +120,11 @@ I18N.zh = {
   jsOff: "{host} 已阻止 JavaScript。",
   jsAllow: "允许 {host} 运行 JavaScript",
   jsBlock: "重新阻止 {host} 的 JavaScript",
+  httpsOnly: "仅 HTTPS 模式",
+  httpsOnlyNote: "网站始终以加密方式（https）打开。如果网站不支持，Sombra 会在以未加密方式打开前提醒你。",
+  hwTitle: "此网站没有安全版本",
+  hwText: "无法以加密方式（https）打开 {host}。如果继续，Tor 出口节点将能看到并修改你在此网站上发送和接收的内容。请勿输入密码或个人信息。",
+  hwContinue: "继续（不加密）",
+  hwBack: "返回",
+  log_httpAllowed: "已以未加密方式打开（http）：{host}",
 };

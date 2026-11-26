@@ -120,4 +120,11 @@ I18N.it = {
   jsOff: "JavaScript bloccato su {host}.",
   jsAllow: "Consenti JavaScript su {host}",
   jsBlock: "Blocca di nuovo JavaScript su {host}",
+  httpsOnly: "Modalità solo HTTPS",
+  httpsOnlyNote: "I siti si aprono sempre cifrati (https). Se un sito non lo consente, Sombra avvisa prima di aprirlo senza cifratura.",
+  hwTitle: "Questo sito non ha una versione sicura",
+  hwText: "{host} non può essere aperto cifrato (https). Se continui, il nodo di uscita Tor potrà vedere e modificare ciò che invii e ricevi su questo sito. Non inserire password né dati personali.",
+  hwContinue: "Continua senza cifratura",
+  hwBack: "Indietro",
+  log_httpAllowed: "Aperto senza cifratura (http): {host}",
 };

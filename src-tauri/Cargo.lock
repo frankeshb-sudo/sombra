@@ -4901,6 +4901,7 @@ checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
+ "ring",
  "rustls-pki-types",
  "rustls-webpki",
  "subtle",
@@ -5545,6 +5546,7 @@ dependencies = [
  "parking_lot",
  "psl",
  "rand 0.8.8",
+ "rustls",
  "serde",
  "serde_json",
  "sys-locale",
@@ -5552,9 +5554,11 @@ dependencies = [
  "tauri-build",
  "tauri-runtime",
  "tokio",
+ "tokio-rustls",
  "tor-rtcompat",
  "url",
  "webkit2gtk",
+ "webpki-roots",
  "zeroize",
 ]
 
@@ -6308,6 +6312,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db"
+dependencies = [
+ "rustls",
+ "tokio",
 ]
 
 [[package]]
@@ -7990,6 +8004,15 @@ dependencies = [
  "pkg-config",
  "soup3-sys",
  "system-deps",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7265c9301c16a8711c992c2d8da90ee77ef54b1ed51482d6dfeb00dc756b1297"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

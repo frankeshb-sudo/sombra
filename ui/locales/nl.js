@@ -120,4 +120,11 @@ I18N.nl = {
   jsOff: "JavaScript geblokkeerd op {host}.",
   jsAllow: "JavaScript toestaan op {host}",
   jsBlock: "JavaScript weer blokkeren op {host}",
+  httpsOnly: "Alleen-HTTPS-modus",
+  httpsOnlyNote: "Websites openen altijd versleuteld (https). Als een website dat niet ondersteunt, waarschuwt Sombra voordat hij onversleuteld wordt geopend.",
+  hwTitle: "Deze website heeft geen veilige versie",
+  hwText: "{host} kan niet versleuteld (https) worden geopend. Als je doorgaat, kan het Tor-exitknooppunt zien en wijzigen wat je op deze website verstuurt en ontvangt. Voer geen wachtwoorden of persoonlijke gegevens in.",
+  hwContinue: "Onversleuteld doorgaan",
+  hwBack: "Terug",
+  log_httpAllowed: "Onversleuteld geopend (http): {host}",
 };

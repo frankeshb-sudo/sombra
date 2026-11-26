@@ -120,4 +120,11 @@ I18N.ar = {
   jsOff: "JavaScript محظور في {host}.",
   jsAllow: "السماح بـ JavaScript في {host}",
   jsBlock: "حظر JavaScript مجددًا في {host}",
+  httpsOnly: "وضع HTTPS فقط",
+  httpsOnlyNote: "تُفتح المواقع دائمًا مشفّرة (https). إذا لم يدعم موقع ذلك، ينبّهك Sombra قبل فتحه دون تشفير.",
+  hwTitle: "لا توجد نسخة آمنة لهذا الموقع",
+  hwText: "لا يمكن فتح {host} مشفّرًا (https). إذا تابعت، ستتمكن عقدة خروج Tor من رؤية وتغيير ما ترسله وتستقبله في هذا الموقع. لا تُدخل كلمات مرور أو بيانات شخصية.",
+  hwContinue: "المتابعة دون تشفير",
+  hwBack: "رجوع",
+  log_httpAllowed: "فُتح دون تشفير (http): {host}",
 };

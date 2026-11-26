@@ -120,4 +120,11 @@ I18N.de = {
   jsOff: "JavaScript auf {host} blockiert.",
   jsAllow: "JavaScript auf {host} erlauben",
   jsBlock: "JavaScript auf {host} wieder blockieren",
+  httpsOnly: "Nur-HTTPS-Modus",
+  httpsOnlyNote: "Websites werden immer verschlüsselt (https) geöffnet. Unterstützt eine Website das nicht, warnt Sombra, bevor sie unverschlüsselt geöffnet wird.",
+  hwTitle: "Diese Website hat keine sichere Version",
+  hwText: "{host} kann nicht verschlüsselt (https) geöffnet werden. Wenn du fortfährst, kann der Tor-Ausgangsknoten sehen und ändern, was du auf dieser Website sendest und empfängst. Gib keine Passwörter oder persönlichen Daten ein.",
+  hwContinue: "Unverschlüsselt fortfahren",
+  hwBack: "Zurück",
+  log_httpAllowed: "Unverschlüsselt geöffnet (http): {host}",
 };

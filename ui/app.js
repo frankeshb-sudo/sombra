@@ -84,7 +84,7 @@ function renderTabs() {
     b.setAttribute('role', 'tab');
     b.title = tab.url || t('newTabTitle');
     if (tab.loading) b.append(el('span', 'spin'));
-    b.append(el('span', 't', tab.has_view ? (tab.title || hostOf(tab.url)) : t('newTabTitle')));
+    b.append(el('span', 't', tab.has_view || tab.https_warn ? (tab.title || hostOf(tab.url)) : t('newTabTitle')));
     const x = el('span', 'x');
     x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     x.onclick = (ev) => { ev.stopPropagation(); invoke('close_tab', { id: tab.id }); };
@@ -94,10 +94,16 @@ function renderTabs() {
     box.append(b);
   }
   const a = activeTab();
-  $('newtab').classList.toggle('hidden', !!(a && a.has_view));
-  if (!editingAddr) $('addr').value = a && a.has_view ? a.url : '';
+  const warn = !!(a && !a.has_view && a.https_warn);
+  $('newtab').classList.toggle('hidden', !!(a && a.has_view) || warn);
+  $('httpswarn').classList.toggle('hidden', !warn);
+  if (warn) {
+    $('hw-text').textContent = t('hwText', { host: hostOf(a.url) });
+    $('hw-url').textContent = a.url;
+  }
+  if (!editingAddr) $('addr').value = a && (a.has_view || warn) ? a.url : '';
   const isHttps = a && a.url.startsWith('https://');
-  $('addr-lock').style.color = !a || !a.has_view ? 'var(--muted)' : isHttps ? 'var(--ok)' : 'var(--warn)';
+  $('addr-lock').style.color = !a || (!a.has_view && !warn) ? 'var(--muted)' : isHttps ? 'var(--ok)' : 'var(--warn)';
   const marked = a && S.bookmarks.some(b => b.url === a.url);
   $('btn-star').classList.toggle('on', !!marked);
   document.title = a && a.has_view ? (a.title || 'Sombra') + ' · Sombra' : 'Sombra';
@@ -278,6 +284,7 @@ function fillSettings() {
   $('s-cleanexit').checked = s.clean_on_exit;
   $('s-histsearch').checked = s.history_searches;
   $('s-fpstrict').checked = s.fp_strict !== false;
+  $('s-httpsonly').checked = s.https_only !== false;
   const n = privacyNote(s.search);
   $('s-engine-priv').textContent = n.text;
   $('s-engine-priv').className = 'priv ' + n.cls;
@@ -555,6 +562,9 @@ $('s-bmbar').onchange = (e) => save({ show_bookmarks: e.target.checked });
 $('s-cleanexit').onchange = (e) => save({ clean_on_exit: e.target.checked });
 $('s-histsearch').onchange = (e) => save({ history_searches: e.target.checked });
 $('s-fpstrict').onchange = (e) => save({ fp_strict: e.target.checked });
+$('s-httpsonly').onchange = (e) => save({ https_only: e.target.checked });
+$('hw-back').onclick = () => invoke('nav_action', { action: 'home' });
+$('hw-go').onclick = () => { const a = activeTab(); if (a) invoke('allow_http', { id: a.id }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); };
 // Botones de la ventana. En Windows ya los pone el sistema en la barra de título.
 const FRAMELESS = !/Windows/.test(navigator.userAgent);
 if (FRAMELESS) { $('winctl').classList.remove('hidden'); document.documentElement.classList.add('frameless'); }

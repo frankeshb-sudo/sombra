@@ -42,6 +42,7 @@
     "allow-vault-fill",
     "allow-cred-answer",
     "allow-window-action",
-    "allow-set-js-site"
+    "allow-set-js-site",
+    "allow-allow-http"
   ]
 }

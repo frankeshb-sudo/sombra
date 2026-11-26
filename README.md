@@ -12,6 +12,7 @@ Navegador **ligero y privado**: sin publicidad, con **Tor integrado**, elección
 | País de salida | Selector en la barra: Alemania, Francia, EE. UU., etc. |
 | Sin publicidad | EasyList, EasyPrivacy, EasyList España y lista de avisos de cookies (motor adblock-rust). Bloqueo por red y ocultación de huecos. En YouTube se quita la lista de anuncios de los datos del vídeo (y si aun así sale uno, se salta). |
 | Niveles de seguridad | Como Tor Browser: *Normal*, *Más seguro* (sin JavaScript en webs http, JavaScript sin JIT ni WebAssembly, sin WebGL ni vídeos que se reproducen solos) y *El más seguro* (sin JavaScript en ninguna web). En el panel (☰) se puede permitir JavaScript en una web concreta. |
+| Solo HTTPS | Como Tor Browser: las webs se abren siempre cifradas (https), también al pulsar un enlace. Antes de abrir una web http, Sombra comprueba por Tor que su https funciona de verdad (certificado válido); si no, muestra un aviso con *Volver* o *Continuar sin cifrar* (solo para esa web y hasta cerrar Sombra). Nada sale sin cifrar por el puerto 80 salvo lo que tú aceptes. Se puede quitar en Ajustes. |
 | Sin fugas | WebRTC desactivado, sin QUIC/UDP, DNS por Tor, red local inaccesible desde las webs. |
 | Nada se guarda | Historial, cookies y caché solo en memoria; se borran al cerrar. |
 | Anti-huella digital | Detecta y engaña intentos de identificar tu equipo (canvas, WebGL, audio, fuentes). |

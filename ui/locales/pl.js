@@ -120,4 +120,11 @@ I18N.pl = {
   jsOff: "JavaScript zablokowany na {host}.",
   jsAllow: "Zezwól na JavaScript na {host}",
   jsBlock: "Znów zablokuj JavaScript na {host}",
+  httpsOnly: "Tryb tylko HTTPS",
+  httpsOnlyNote: "Strony zawsze otwierają się szyfrowane (https). Jeśli strona tego nie obsługuje, Sombra ostrzega przed otwarciem jej bez szyfrowania.",
+  hwTitle: "Ta strona nie ma bezpiecznej wersji",
+  hwText: "Nie można otworzyć {host} z szyfrowaniem (https). Jeśli kontynuujesz, węzeł wyjściowy Tor będzie mógł widzieć i zmieniać to, co wysyłasz i odbierasz na tej stronie. Nie wpisuj haseł ani danych osobowych.",
+  hwContinue: "Kontynuuj bez szyfrowania",
+  hwBack: "Wróć",
+  log_httpAllowed: "Otwarto bez szyfrowania (http): {host}",
 };

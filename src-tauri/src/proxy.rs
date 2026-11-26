@@ -102,6 +102,14 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>) -> anyhow::Result<()> {
         }
     }
 
+    // Modo solo HTTPS: nada sale sin cifrar (puerto 80) salvo las webs que el usuario ha
+    // aceptado abrir así. Los .onion ya van cifrados de punta a punta dentro de Tor.
+    if port == 80 && !host.ends_with(".onion") && sh.settings.lock().https_only && !sh.http_allowed(&host) {
+        sh.stats.page_blocked.fetch_add(1, Ordering::Relaxed);
+        reply(&mut s, REP_NOT_ALLOWED).await?;
+        return Ok(());
+    }
+
     // Salida únicamente por Tor.
     // Los servicios .onion a veces fallan al primer intento mientras Tor encuentra la ruta: se reintenta.
     let attempts = if host.ends_with(".onion") { 3 } else { 1 };
@@ -133,7 +141,7 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn is_local(host: &str) -> bool {
+pub fn is_local(host: &str) -> bool {
     let h = host.trim_end_matches('.');
     const LOCAL_SUFFIXES: [&str; 8] = [".localhost", ".local", ".lan", ".internal", ".home", ".home.arpa", ".corp", ".intranet"];
     if h == "localhost" || LOCAL_SUFFIXES.iter().any(|s| h.ends_with(s)) || !h.contains('.') && h.parse::<IpAddr>().is_err() && !h.contains(':') {

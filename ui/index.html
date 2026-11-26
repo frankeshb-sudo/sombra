@@ -57,6 +57,20 @@
         <div id="speed"></div>
       </div>
 
+      <!-- Modo solo HTTPS: la web no tiene versión cifrada -->
+      <div id="httpswarn" class="hidden" role="alert">
+        <div class="hw-box">
+          <svg viewBox="0 0 24 24" class="hw-icon"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
+          <h2 data-t="hwTitle"></h2>
+          <p id="hw-text"></p>
+          <p id="hw-url" class="muted small"></p>
+          <div class="hw-btns">
+            <button id="hw-back" class="btn primary" data-t="hwBack"></button>
+            <button id="hw-go" class="btn" data-t="hwContinue"></button>
+          </div>
+        </div>
+      </div>
+
       <!-- Páginas internas (tapan la web mientras están abiertas) -->
       <div id="page" class="hidden">
         <div class="page-head">
@@ -110,6 +124,7 @@
             <label class="switch"><input type="radio" name="seclvl" value="1"><span><b data-t="secSafer"></b> — <span data-t="secSaferNote"></span></span></label>
             <label class="switch"><input type="radio" name="seclvl" value="2"><span><b data-t="secSafest"></b> — <span data-t="secSafestNote"></span></span></label>
             <p class="muted small" data-t="secRestart"></p>
+            <label class="switch"><input type="checkbox" id="s-httpsonly"><span><b data-t="httpsOnly"></b> — <span data-t="httpsOnlyNote"></span></span></label>
           </section>
           <section class="card">
             <h3 data-t="fingerprint"></h3>

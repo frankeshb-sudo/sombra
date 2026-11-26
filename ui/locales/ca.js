@@ -120,4 +120,11 @@ I18N.ca = {
   jsOff: "JavaScript bloquejat a {host}.",
   jsAllow: "Permet JavaScript a {host}",
   jsBlock: "Torna a bloquejar JavaScript a {host}",
+  httpsOnly: "Mode només HTTPS",
+  httpsOnlyNote: "Els webs s'obren sempre xifrats (https). Si un web no ho permet, Sombra avisa abans d'obrir-lo sense xifrar.",
+  hwTitle: "Aquest web no té versió segura",
+  hwText: "{host} no es pot obrir xifrat (https). Si continues, el node de sortida de Tor podrà veure i canviar el que enviïs i rebis en aquest web. No hi escriguis contrasenyes ni dades personals.",
+  hwContinue: "Continua sense xifrar",
+  hwBack: "Torna",
+  log_httpAllowed: "Obert sense xifrar (http): {host}",
 };

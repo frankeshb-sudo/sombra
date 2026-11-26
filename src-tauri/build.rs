@@ -39,6 +39,7 @@ fn main() {
         "cred_answer",
         "window_action",
         "set_js_site",
+        "allow_http",
     ];
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)))
         .expect("tauri build");

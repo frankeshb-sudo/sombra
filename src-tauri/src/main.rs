@@ -87,6 +87,13 @@ async fn nav_action(app: AppHandle, sh: Sh<'_>, action: String) -> Result<(), St
         tabs::go_home(&app, &sh, id);
         return Ok(());
     }
+    // Pestaña con el aviso de "sin https": Recargar vuelve a probar si la web tiene https.
+    if action == "reload" {
+        let warn = sh.tabs.lock().list.iter().find(|t| t.id == id && t.https_warn).map(|t| t.url.clone());
+        if let Some(url) = warn {
+            return tabs::navigate(&app, &sh, id, &url).await.map_err(e2s);
+        }
+    }
     let js = match action.as_str() {
         "back" => "history.back()",
         "forward" => "history.forward()",
@@ -176,6 +183,9 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         if let Some(v) = patch.get("fp_strict").and_then(|v| v.as_bool()) {
             s.fp_strict = v;
         }
+        if let Some(v) = patch.get("https_only").and_then(|v| v.as_bool()) {
+            s.https_only = v;
+        }
         if let Some(v) = patch.get("security_level").and_then(|v| v.as_u64()) {
             s.security_level = v.min(2) as u8;
         }
@@ -215,6 +225,22 @@ fn refresh_js(app: &AppHandle, sh: &Arc<Shared>) {
     tauri::async_runtime::spawn(async move {
         let _ = tabs::navigate(&app, &sh, id, &url).await;
     });
+}
+
+/// Modo solo HTTPS: el usuario decide abrir sin cifrar la web del aviso de esa pestaña
+/// (vale para esa web y sus subdominios, solo hasta cerrar Sombra).
+#[tauri::command]
+async fn allow_http(app: AppHandle, sh: Sh<'_>, id: u32) -> Result<(), String> {
+    let url = sh.tabs.lock().list.iter().find(|t| t.id == id && t.https_warn).map(|t| t.url.clone()).ok_or("sin aviso")?;
+    let u = url::Url::parse(&url).map_err(e2s)?;
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    if host.is_empty() {
+        return Err("web no válida".into());
+    }
+    sh.sec("httpAllowed", json!({ "host": host }), format!("Abierta sin cifrar (http): {host}"));
+    sh.http_ok.lock().insert(host);
+    tabs::navigate(&app, &sh, id, &url).await.map_err(e2s)
 }
 
 /// Permitir o volver a bloquear JavaScript en una web (cuando el nivel de seguridad lo bloquea).
@@ -664,6 +690,7 @@ fn main() {
             cred_answer,
             window_action,
             set_js_site,
+            allow_http,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -753,6 +780,69 @@ fn main() {
                     while !sh2.tor.is_ready() {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
+                    // SOMBRA_SECTEST=https: modo solo HTTPS.
+                    if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("https") {
+                        let estado = |sh: &Arc<Shared>| {
+                            let t = sh.tabs.lock();
+                            t.list.iter().find(|x| Some(x.id) == t.active).map(|x| format!("url={} vista={} aviso={}", x.url, x.has_view, x.https_warn)).unwrap_or_default()
+                        };
+                        let ir = |app: AppHandle, sh: Arc<Shared>, url: &'static str| async move {
+                            match tabs::active_id(&sh) {
+                                Some(id) => { let _ = tabs::navigate(&app, &sh, id, url).await; }
+                                None => { let _ = tabs::new_tab(&app, &sh, Some(url.into())).await; }
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            if let Some(id) = tabs::active_id(&sh) {
+                                tabs::wait_loaded(&sh, id, 60).await;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        };
+                        ir(app2.clone(), sh2.clone(), "http://example.com/").await;
+                        log::warn!("SECTEST https 1 escrito http con https: {}", estado(&sh2));
+                        ir(app2.clone(), sh2.clone(), "info.cern.ch").await;
+                        log::warn!("SECTEST https 2 certificado caducado (escrita sin http): {}", estado(&sh2));
+                        ir(app2.clone(), sh2.clone(), "http://httpforever.com/").await;
+                        log::warn!("SECTEST https 3 sin cifrado en el 443: {}", estado(&sh2));
+                        ir(app2.clone(), sh2.clone(), "https://example.com/").await;
+                        if let Some(id) = tabs::active_id(&sh2) {
+                            let _ = tabs::eval_tab(&app2, id, "(() => { location.href = 'http://www.wikipedia.org/'; return 'ok'; })()".into()).await;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                        if let Some(id) = tabs::active_id(&sh2) {
+                            tabs::wait_loaded(&sh2, id, 60).await;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        log::warn!("SECTEST https 4 enlace a http desde una web: {}", estado(&sh2));
+                        ir(app2.clone(), sh2.clone(), "http://httpforever.com/").await;
+                        sh2.http_ok.lock().insert("httpforever.com".into());
+                        ir(app2.clone(), sh2.clone(), "http://httpforever.com/").await;
+                        let id = tabs::active_id(&sh2).unwrap_or(0);
+                        let r = tokio::time::timeout(std::time::Duration::from_secs(8), tabs::eval_tab(&app2, id, "(() => document.title + ' | ' + location.href)()".into())).await;
+                        log::warn!("SECTEST https 5 permitida sin cifrar: {} página={r:?}", estado(&sh2));
+                        // El proxy: ¿deja salir algo sin cifrar (puerto 80) a una web no permitida?
+                        let port = tabs::ENGINE.get().map(|e| e.proxy_port).unwrap_or(0);
+                        for (host, p) in [("example.org", 80u16), ("example.org", 443), ("httpforever.com", 80)] {
+                            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                            let r: std::io::Result<u8> = async {
+                                let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+                                s.write_all(&[5, 1, 0]).await?;
+                                let mut b = [0u8; 2];
+                                s.read_exact(&mut b).await?;
+                                let mut req = vec![5, 1, 0, 3, host.len() as u8];
+                                req.extend_from_slice(host.as_bytes());
+                                req.extend_from_slice(&p.to_be_bytes());
+                                s.write_all(&req).await?;
+                                let mut rep = [0u8; 10];
+                                s.read_exact(&mut rep).await?;
+                                Ok(rep[1])
+                            }
+                            .await;
+                            log::warn!("SECTEST https proxy {host}:{p} -> {r:?} (0 = sale, 2 = bloqueado)");
+                        }
+                        log::warn!("SECTEST https fin");
+                        return;
+                    }
+                    sh2.settings.lock().https_only = false;
                     let probe = "(() => JSON.stringify({ text: (document.body ? document.body.innerText : '').replace(/\\s+/g, ' ').slice(0, 160), wasm: typeof WebAssembly, webgl: !!document.createElement('canvas').getContext('webgl'), title: document.title }))()";
                     let level = sh2.settings.lock().security_level;
                     let paso = |app: AppHandle, sh: Arc<Shared>, nombre: &'static str, url: &'static str| async move {
@@ -771,7 +861,7 @@ fn main() {
                     // SOMBRA_SECTEST=yt: solo la parte de YouTube.
                     if std::env::var("SOMBRA_SECTEST").as_deref() != Ok("yt") {
                         paso(app2.clone(), sh2.clone(), "https", "https://www.enable-javascript.com/").await;
-                        paso(app2.clone(), sh2.clone(), "http", "http://neverssl.com/").await;
+                        paso(app2.clone(), sh2.clone(), "http", "http://httpforever.com/").await;
                         sh2.settings.lock().js_allow = vec!["enable-javascript.com".into()];
                         paso(app2.clone(), sh2.clone(), "https permitida", "https://www.enable-javascript.com/").await;
                         sh2.settings.lock().js_allow.clear();
@@ -835,11 +925,13 @@ fn main() {
                         }
                         "sin resultado".into()
                     }
+                    // La sonda también se prueba en una web http (sin el modo solo HTTPS).
+                    sh2.settings.lock().https_only = false;
                     let probe = include_str!("../../tools/audit-probe.js");
                     let id = abrir(&app2, &sh2, "https://check.torproject.org/").await;
                     let r = tabs::eval_tab(&app2, id, "(() => document.title)()".into()).await;
                     log::warn!("AUDIT tor: {r:?}");
-                    for url in ["https://example.com/", "http://neverssl.com/"] {
+                    for url in ["https://example.com/", "http://httpforever.com/"] {
                         let id = abrir(&app2, &sh2, url).await;
                         let r = tabs::eval_tab(&app2, id, probe.into()).await;
                         log::warn!("AUDIT sonda lanzada en {url}: {r:?}");

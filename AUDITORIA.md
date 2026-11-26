@@ -50,6 +50,7 @@ La prueba (`tools/audit-probe.js`) hace lo que haría una web maliciosa: intenta
 | IP oculta | Siempre, por Tor, sin salida directa | Siempre, por Tor | Solo en ventanas Tor | No | No |
 | Bloqueo de anuncios y rastreadores | Sí (listas EasyList) | No (no recomienda extensiones) | Sí | Rastreadores sí, anuncios no | No |
 | Anuncios de YouTube | Sí | No | Sí | No | No |
+| Modo solo HTTPS | Sí, por defecto, con aviso y bloqueo en el proxy | Sí, por defecto | Opcional | Opcional | Opcional |
 | Niveles de seguridad (sin JavaScript) | Sí, 3 niveles y permiso por web | Sí, 3 niveles | No | No | No |
 | Huella: hora e idioma comunes | Sí (UTC, en-US), en Workers solo Linux | Sí, en todo el motor | No | Solo con «resist fingerprinting» | No |
 | Huella: canvas/audio | Ruido por web y sesión | Bloqueo con permiso | Ruido por web y sesión | Parcial | No |
@@ -64,8 +65,13 @@ La prueba (`tools/audit-probe.js`) hace lo que haría una web maliciosa: intenta
 
 ## Pendiente (siguientes mejoras)
 
-- **Modo solo HTTPS**: pasar a https las webs http (Tor Browser lo hace por defecto). En el nivel «Más seguro» ya no se ejecuta JavaScript en http.
 - **Núcleos en Workers**: inyectar la protección también en Workers.
 - **Tipos de letra**: limitar a una lista fija (en Linux, con la configuración de fontconfig del motor).
 - **Windows**: probar todo lo anterior allí; la hora en Workers depende del motor y no se puede cambiar con la variable TZ.
 - **Descargas**: preguntar siempre antes de descargar (en Windows, WebView2 muestra su propio aviso).
+
+## Después de la auditoría: modo solo HTTPS (hecho)
+
+Activado por defecto. Las webs http se abren por https (también enlaces y redirecciones); antes, Sombra hace por Tor un saludo TLS real con la web y comprueba el certificado (raíces de Mozilla). Si falla (puerto cerrado, sin cifrado, certificado caducado) se muestra un aviso con *Volver* o *Continuar sin cifrar*. El proxy corta cualquier conexión al puerto 80 que no hayas aceptado. Los .onion no se tocan (ya van cifrados dentro de Tor).
+
+Probado en Linux (`bash tools/sectest.sh https`): http://example.com → https; info.cern.ch (certificado caducado) y httpforever.com (sin https) → aviso; un enlace a http desde una web → https; *Continuar* abre la web por http; el proxy bloquea example.org:80 y deja httpforever.com:80 tras aceptarla.
