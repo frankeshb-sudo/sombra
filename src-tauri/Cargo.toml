@@ -35,6 +35,7 @@ bip39 = { version = "2", features = ["spanish"] }
 zeroize = "1"
 psl = "2"
 sys-locale = "0.3"
+iana-time-zone = "0.1"
 
 # Linux: acceso al motor WebKit (idiomas que se piden a las webs).
 [target.'cfg(target_os = "linux")'.dependencies]

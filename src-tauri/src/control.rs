@@ -331,6 +331,14 @@ async fn run(ctx: &Ctx, client: &str, action: &str, a: &Value) -> anyhow::Result
             let id = tab_arg(sh, a)?;
             let el = id_arg(a)?;
             let v = a.get("value").and_then(|v| v.as_str()).unwrap_or("");
+            // Igual que en "type": a un campo de contraseña no se le pone nada desde aquí.
+            let info = tabs::eval_tab(app, id, probe_js(el)).await?;
+            if info.get("exists").and_then(|v| v.as_bool()) != Some(true) {
+                anyhow::bail!("No existe el elemento {el}. Vuelve a llamar a 'read'.");
+            }
+            if info.get("password").and_then(|v| v.as_bool()) == Some(true) {
+                anyhow::bail!("Por seguridad, las contraseñas las escribe el usuario. Pídele que la escriba en Sombra.");
+            }
             Ok(json!({ "ok": true, "result": tabs::eval_tab(app, id, select_js(el, v)).await? }))
         }
         "scroll" => {

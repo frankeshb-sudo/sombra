@@ -186,6 +186,13 @@ $('js-toggle').onclick = async () => {
   setTimeout(refreshPrivacy, 1500);
 };
 
+// Las horas de la interfaz, en tu zona real (con la huella reforzada el motor va en UTC).
+function tzo(o) {
+  const z = window.__SYS_TZ;
+  try { if (z) { new Intl.DateTimeFormat('en', { timeZone: z }); return Object.assign({ timeZone: z }, o); } } catch (e) {}
+  return o || {};
+}
+
 function logText(l) {
   if (l.code && has('log_' + l.code)) {
     const p = Object.assign({}, l.params || {});
@@ -200,7 +207,7 @@ async function refreshLogs() {
   const box = $('logs'); box.textContent = '';
   for (const l of logs.slice(-80).reverse()) {
     const d = el('div', 'log ' + l.kind);
-    const time = new Date(l.time * 1000).toLocaleTimeString(LANG);
+    const time = new Date(l.time * 1000).toLocaleTimeString(LANG, tzo());
     d.append(el('span', 'k', t('kind_' + l.kind) + ' ' + time), document.createTextNode(logText(l)));
     box.append(d);
   }
@@ -307,7 +314,7 @@ async function loadHistory() {
   let day = '';
   for (const it of r.items) {
     const d = new Date(it.time * 1000);
-    const dk = d.toLocaleDateString(LANG, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const dk = d.toLocaleDateString(LANG, tzo({ weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
     if (dk !== day) { day = dk; list.append(el('div', 'h-day', dk)); }
     const row = el('div', 'h-item');
     const tx = el('div', 'tx');
@@ -315,7 +322,7 @@ async function loadHistory() {
     const rm = el('button', 'rm'); rm.title = t('remove');
     rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     rm.onclick = (ev) => { ev.stopPropagation(); invoke('remove_history', { url: it.url }).then(loadHistory); };
-    row.append(el('span', 'tm', d.toLocaleTimeString(LANG, { hour: '2-digit', minute: '2-digit' })), tx, rm);
+    row.append(el('span', 'tm', d.toLocaleTimeString(LANG, tzo({ hour: '2-digit', minute: '2-digit' }))), tx, rm);
     row.onclick = () => { closePage(); invoke('navigate', { id: null, input: it.url }); };
     list.append(row);
   }

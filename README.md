@@ -65,7 +65,7 @@ Instalador (opcional): `cargo install tauri-cli --version "^2"` y luego `cargo t
 
 - Por Tor algunas webs van más lentas y muestran más CAPTCHAs.
 - Las webs pueden notar que el motor es WebView2/Chromium. Contra la huella digital, el Tor Browser oficial sigue siendo más fuerte.
-- Huella reforzada (Ajustes, activada por defecto): idioma inglés, hora UTC, tamaño de página redondeado y sin listas de voces ni dispositivos. Limitación: el código que una web ejecuta en segundo plano (Web Workers) aún ve la zona horaria real.
+- Huella reforzada (Ajustes, activada por defecto): idioma inglés, hora UTC, tamaño de página redondeado, sin listas de voces ni dispositivos, ruido en canvas/WebGL/audio distinto en cada web y sesión, y en Linux las webs ven Safari en Mac. Limitaciones: el tamaño real del monitor se puede leer con reglas CSS, los tipos de letra delatan el sistema, los Workers ven los núcleos reales y, en Windows, también la zona horaria real. Detalles y comparación con otros navegadores en `AUDITORIA.md`.
 - Anuncios de YouTube: funcionan quitando los anuncios de los datos del vídeo; si YouTube cambia su forma de mandarlos, puede dejar de funcionar hasta actualizar Sombra.
 - Niveles de seguridad: cuando una web necesita JavaScript al revés que la anterior, la pestaña se abre de nuevo (se pierde el botón Atrás de esa pestaña). Permitir JavaScript en una web también lo permite en los recuadros que esa web incluya.
 - Linux: la ventana lleva su propia barra (− □ ×) en lugar de la del sistema.

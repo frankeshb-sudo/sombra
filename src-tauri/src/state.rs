@@ -378,11 +378,38 @@ pub fn read_json<T: for<'de> Deserialize<'de>>(p: &PathBuf) -> Option<T> {
     serde_json::from_str(&s).ok()
 }
 
+/// Guarda un archivo de datos de forma segura: primero en uno temporal y luego lo cambia de
+/// nombre. En Linux/Android solo lo puede leer tu usuario (permisos 600).
 pub fn write_json<T: Serialize>(p: &PathBuf, v: &T) {
     if let Ok(s) = serde_json::to_string_pretty(v) {
-        let tmp = p.with_extension("tmp");
-        if std::fs::write(&tmp, s).is_ok() {
-            let _ = std::fs::rename(&tmp, p);
+        // Nombre temporal único: si dos guardados coinciden, no se pisan el archivo a medias.
+        let tmp = p.with_extension(format!("{:016x}.tmp", rand::random::<u64>()));
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            o.mode(0o600);
         }
+        let ok = o.open(&tmp).and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(s.as_bytes())?;
+            f.sync_all()
+        });
+        if ok.is_ok() && std::fs::rename(&tmp, p).is_ok() {
+            return;
+        }
+        let _ = std::fs::remove_file(&tmp);
     }
+}
+
+/// Linux/Android: la carpeta de datos de Sombra solo es accesible para tu usuario (700).
+pub fn protect_dir(p: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    let _ = p;
 }

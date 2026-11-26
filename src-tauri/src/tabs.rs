@@ -16,7 +16,13 @@ pub struct Engine {
     pub data_dir: PathBuf,
     /// Nombre aleatorio (por sesión) del contador anti-huella dentro de cada página.
     pub fp_key: String,
+    /// Semilla aleatoria (por sesión) del ruido de canvas, WebGL y audio. Nunca se expone.
+    pub fp_seed: u32,
 }
+
+/// Linux con huella reforzada: las webs ven Safari en Mac. Es el mismo motor (WebKit), así que
+/// casi todo encaja, y Safari en Mac tiene muchísimos usuarios (WebKitGTK en Ubuntu, muy pocos).
+pub const SAFARI_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15";
 
 pub static ENGINE: OnceLock<Engine> = OnceLock::new();
 
@@ -103,7 +109,9 @@ pub fn label(id: u32) -> String {
 }
 
 /// Script que se ejecuta en cada página (y en cada iframe) antes que el código de la web.
-fn privacy_script(fp_key: &str, strict: bool, yt: bool) -> String {
+fn privacy_script(fp_key: &str, seed: u32, strict: bool, yt: bool) -> String {
+    // Linux con huella reforzada: las webs ven Safari en Mac (ver SAFARI_UA).
+    let platform = if cfg!(target_os = "linux") && strict { "MacIntel" } else { "" };
     r#"(() => {
   try {
     const hide = (o, k) => { try { delete o[k]; } catch (e) {} try { Object.defineProperty(o, k, { value: undefined, configurable: true }); } catch (e) {} };
@@ -198,21 +206,34 @@ fn privacy_script(fp_key: &str, strict: bool, yt: bool) -> String {
     }
     // WebRTC fuera: es la fuga de IP más típica.
     ['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','RTCSessionDescription','RTCIceCandidate','RTCRtpReceiver','RTCRtpSender'].forEach(k => hide(window, k));
-    // Ruido en canvas y aviso de intentos de huella digital.
+    // Huella de canvas, WebGL y audio: ruido mínimo que cambia en cada web y en cada sesión
+    // (como Brave). Dentro de una misma web y sesión el resultado es siempre el mismo, pero dos
+    // webs, o la misma web otro día, ven huellas distintas: no se te puede seguir con ellas.
     const note = (k) => { st.fp++; st.kinds[k] = (st.kinds[k] || 0) + 1; };
-    const noise = (data) => { for (let i = 0; i < data.length; i += 97) { data[i] = data[i] ^ 1; } };
+    const site = (() => { try { return window.top.location.hostname; } catch (e) { return location.hostname; } })();
+    const SEED = (() => { let h = 2166136261 ^ __SEED__; for (const ch of site) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; })();
+    const rng = (s) => () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const noise = (data) => { const r = rng(SEED ^ data.length); for (let i = Math.floor(r() * 40); i < data.length; i += 16 + Math.floor(r() * 48)) { if ((i & 3) !== 3) data[i] ^= 1; } };
     const C2D = window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype;
+    const GID = C2D && C2D.getImageData, GCX = window.HTMLCanvasElement && HTMLCanvasElement.prototype.getContext;
     if (C2D) wrap(C2D, 'getImageData', orig => function () { note('canvas'); const r = orig.apply(this, arguments); try { noise(r.data); } catch (e) {} return r; });
+    if (window.OffscreenCanvasRenderingContext2D) wrap(OffscreenCanvasRenderingContext2D.prototype, 'getImageData', orig => function () { note('canvas'); const r = orig.apply(this, arguments); try { noise(r.data); } catch (e) {} return r; });
     const HC = window.HTMLCanvasElement && HTMLCanvasElement.prototype;
     if (HC && C2D) {
+      // Se exporta una copia con ruido: el canvas de la web no se toca (antes se modificaba).
       for (const m of ['toDataURL', 'toBlob']) {
         wrap(HC, m, orig => function () {
           note('canvas');
           try {
-            const ctx = this.getContext && this.getContext('2d');
-            if (ctx && this.width && this.height) {
-              const d = C2D.getImageData.call(ctx, 0, 0, Math.min(this.width, 64), Math.min(this.height, 64));
-              ctx.putImageData(d, 0, 0);
+            if (this.width && this.height && this.width * this.height <= 4000000) {
+              const c = document.createElement('canvas');
+              c.width = this.width; c.height = this.height;
+              const x = GCX.call(c, '2d');
+              x.drawImage(this, 0, 0);
+              const d = GID.call(x, 0, 0, c.width, c.height);
+              noise(d.data);
+              x.putImageData(d, 0, 0);
+              return orig.apply(c, arguments);
             }
           } catch (e) {}
           return orig.apply(this, arguments);
@@ -226,9 +247,28 @@ fn privacy_script(fp_key: &str, strict: bool, yt: bool) -> String {
         if (p === 37446) { note('webgl'); return 'ANGLE (Generic GPU)'; }
         return orig.apply(this, arguments);
       });
+      wrap(G.prototype, 'readPixels', orig => function () {
+        const r = orig.apply(this, arguments);
+        try { const px = [...arguments].find(a => ArrayBuffer.isView(a)); if (px && px.length) { note('webgl'); noise(px); } } catch (e) {}
+        return r;
+      });
     }
     const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if (AC) wrap(AC.prototype, 'startRendering', orig => function () { note('audio'); return orig.apply(this, arguments); });
+    // Audio: variación inaudible (una millonésima) en algunas muestras, igual en cada lectura.
+    const anoise = (a) => { const r = rng(SEED ^ a.length ^ 0x5bd1e995); for (let i = Math.floor(r() * 100); i < a.length; i += 50 + Math.floor(r() * 150)) a[i] += (r() - 0.5) * 2e-7; };
+    if (window.AudioBuffer) {
+      const seen = new WeakSet();
+      wrap(AudioBuffer.prototype, 'getChannelData', orig => function () {
+        const a = orig.apply(this, arguments);
+        try { if (!seen.has(a)) { seen.add(a); anoise(a); } } catch (e) {}
+        return a;
+      });
+      wrap(AudioBuffer.prototype, 'copyFromChannel', orig => function (dest) { const r = orig.apply(this, arguments); try { anoise(dest); } catch (e) {} return r; });
+    }
+    if (window.AnalyserNode) {
+      wrap(AnalyserNode.prototype, 'getFloatFrequencyData', orig => function (a) { const r = orig.apply(this, arguments); try { note('audio'); anoise(a); } catch (e) {} return r; });
+    }
     if (window.FontFaceSet) {
       let n = 0;
       wrap(FontFaceSet.prototype, 'check', orig => function () { if (++n === 20) note('fuentes'); return orig.apply(this, arguments); });
@@ -245,6 +285,17 @@ fn privacy_script(fp_key: &str, strict: bool, yt: bool) -> String {
       const LANGS = Object.freeze([LOC, 'en']);
       getter(Navigator.prototype, 'language', () => LOC);
       getter(Navigator.prototype, 'languages', () => LANGS);
+      // Linux: Sombra se presenta como Safari en Mac (mismo motor, muchísimos más usuarios).
+      if ('__PLATFORM__') getter(Navigator.prototype, 'platform', () => '__PLATFORM__');
+      // Windows: WebView2 se delata en la lista de marcas ("Microsoft Edge WebView2"); se quita.
+      if (window.NavigatorUAData) {
+        const P = NavigatorUAData.prototype, d = Object.getOwnPropertyDescriptor(P, 'brands');
+        const clean = (l) => Array.isArray(l) ? l.filter(b => !/webview/i.test(b && b.brand)) : l;
+        if (d && d.get) { const og = d.get; getter(P, 'brands', function () { return clean(og.call(this)); }); }
+        wrap(P, 'getHighEntropyValues', orig => function () {
+          return orig.apply(this, arguments).then(v => { if (v) { if (v.brands) v.brands = clean(v.brands); if (v.fullVersionList) v.fullVersionList = clean(v.fullVersionList); } return v; });
+        });
+      }
       // Intl: idioma y zona horaria por defecto.
       const opts = (o, tz) => {
         if (!tz) return o;
@@ -324,8 +375,7 @@ fn privacy_script(fp_key: &str, strict: bool, yt: bool) -> String {
       const top = (() => { try { return window.top.innerWidth >= 0 ? window.top : window; } catch (e) { return window; } })();
       const W = () => top.innerWidth, H = () => top.innerHeight, Z = () => 0;
       for (const [k, f] of [['width', W], ['height', H], ['availWidth', W], ['availHeight', H], ['availLeft', Z], ['availTop', Z], ['colorDepth', () => 24], ['pixelDepth', () => 24]]) getter(Screen.prototype, k, f);
-      for (const [k, f] of [['outerWidth', W], ['outerHeight', H], ['screenX', Z], ['screenY', Z], ['screenLeft', Z], ['screenTop', Z]]) getter(window, k, f);
-      // Voces de lectura en voz alta y dispositivos (cámaras, micros): listas vacías.
+      for (const [k, f] of [['outerWidth', W], ['outerHeight', H], ['screenX', Z], ['screenY', Z], ['screenLeft', Z], ['screenTop', Z]]) getter(window, k, f);      // Voces de lectura en voz alta y dispositivos (cámaras, micros): listas vacías.
       if (window.speechSynthesis && window.SpeechSynthesis) wrap(SpeechSynthesis.prototype, 'getVoices', () => function () { return []; });
       if (window.MediaDevices) wrap(MediaDevices.prototype, 'enumerateDevices', () => function () { return Promise.resolve([]); });
     }
@@ -365,6 +415,8 @@ fn privacy_script(fp_key: &str, strict: bool, yt: bool) -> String {
   } catch (e) {}
 })();"#
         .replace("__FPKEY__", fp_key)
+        .replace("__SEED__", &seed.to_string())
+        .replace("__PLATFORM__", platform)
         .replace("__STRICT__", if strict { "true" } else { "false" })
         .replace("__YT__", if yt { "true" } else { "false" })
 }
@@ -499,8 +551,11 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
     if !js {
         builder = builder.disable_javascript();
     }
+    if cfg!(target_os = "linux") && strict {
+        builder = builder.user_agent(SAFARI_UA);
+    }
     let builder = builder
-        .initialization_script_for_all_frames(privacy_script(&eng.fp_key, strict, yt))
+        .initialization_script_for_all_frames(privacy_script(&eng.fp_key, eng.fp_seed, strict, yt))
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_navigation(move |u| {
             if !allowed_scheme(u) {

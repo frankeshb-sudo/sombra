@@ -593,6 +593,7 @@ fn main() {
     let _ = env_logger::try_init();
     let data_dir = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("Sombra");
     let _ = std::fs::create_dir_all(&data_dir);
+    state::protect_dir(&data_dir);
     // Nada de la navegación se conserva: la carpeta del motor se borra al abrir y al cerrar.
     let web_dir = data_dir.join("webview");
     let _ = std::fs::remove_dir_all(&web_dir);
@@ -607,6 +608,15 @@ fn main() {
     // Windows: argumentos del motor (browser_args). Linux: idiomas del motor WebKit (abajo).
     // Se aplica al abrir Sombra.
     let level = shared.settings.lock().security_level;
+    // Zona horaria real, para que la interfaz de Sombra muestre tu hora aunque las webs vean UTC.
+    let sys_tz = iana_time_zone::get_timezone().unwrap_or_default();
+    // Linux (WebKit): huella reforzada = todo el motor en UTC, también el código en segundo
+    // plano (Workers), al que no llega el script de las páginas. En Windows el motor no hace
+    // caso de esta variable: allí solo cambia la hora que ven las páginas (por script).
+    #[cfg(target_os = "linux")]
+    if fp_strict {
+        std::env::set_var("TZ", "UTC");
+    }
     // Linux (WebKit): niveles "más seguro" y "el más seguro" sin compilador JIT ni WebAssembly.
     // El motor lee estas variables al arrancar sus procesos, así que van antes de crear nada.
     #[cfg(target_os = "linux")]
@@ -794,6 +804,64 @@ fn main() {
                 });
             }
 
+            // Solo en pruebas (SOMBRA_AUDIT=1): auditoría de seguridad. Prueba lo que haría una web
+            // maliciosa (tools/audit-probe.js), una descarga y CreepJS. Resultados en el registro.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_AUDIT").is_ok() {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    while !sh2.tor.is_ready() {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    async fn abrir(app: &AppHandle, sh: &Arc<Shared>, url: &str) -> u32 {
+                        let id = match tabs::active_id(sh) {
+                            Some(id) => { let _ = tabs::navigate(app, sh, id, url).await; id }
+                            None => tabs::new_tab(app, sh, Some(url.into())).await.unwrap_or(0),
+                        };
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        let id = tabs::active_id(sh).unwrap_or(id);
+                        tabs::wait_loaded(sh, id, 60).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        tabs::active_id(sh).unwrap_or(id)
+                    }
+                    async fn esperar(app: &AppHandle, id: u32, var: &str, secs: u64) -> String {
+                        for _ in 0..secs {
+                            match tabs::eval_tab(app, id, format!("(() => String(window.{var}))()")).await {
+                                Ok(Value::String(s)) if s == "esperando" || s == "undefined" => {}
+                                Ok(v) => return v.to_string(),
+                                Err(_) => {}
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        }
+                        "sin resultado".into()
+                    }
+                    let probe = include_str!("../../tools/audit-probe.js");
+                    let id = abrir(&app2, &sh2, "https://check.torproject.org/").await;
+                    let r = tabs::eval_tab(&app2, id, "(() => document.title)()".into()).await;
+                    log::warn!("AUDIT tor: {r:?}");
+                    for url in ["https://example.com/", "http://neverssl.com/"] {
+                        let id = abrir(&app2, &sh2, url).await;
+                        let r = tabs::eval_tab(&app2, id, probe.into()).await;
+                        log::warn!("AUDIT sonda lanzada en {url}: {r:?}");
+                        log::warn!("AUDIT sonda {url}: {}", esperar(&app2, id, "__audit", 40).await);
+                    }
+                    // Descarga: ¿guarda la web un archivo sin preguntar?
+                    let dl = dirs::download_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Downloads"));
+                    let antes: Vec<_> = std::fs::read_dir(&dl).map(|d| d.flatten().map(|e| e.file_name()).collect()).unwrap_or_default();
+                    let _ = abrir(&app2, &sh2, "https://proof.ovh.net/files/1Mb.dat").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(25)).await;
+                    let despues: Vec<_> = std::fs::read_dir(&dl).map(|d| d.flatten().map(|e| e.file_name()).collect()).unwrap_or_default();
+                    let nuevos: Vec<_> = despues.iter().filter(|f| !antes.contains(f)).collect();
+                    log::warn!("AUDIT descarga: carpeta={dl:?} nuevos={nuevos:?}");
+                    // CreepJS: detecta mentiras en la huella.
+                    let id = abrir(&app2, &sh2, "https://abrahamjuliot.github.io/creepjs/").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+                    let r = tabs::eval_tab(&app2, id, "(() => (document.body ? document.body.innerText : '').replace(/\\s+/g, ' ').slice(0, 2500))()".into()).await;
+                    log::warn!("AUDIT creepjs: {r:?}");
+                    log::warn!("AUDIT fin");
+                });
+            }
+
             // 3) Bloqueador (cargar las listas tarda un par de segundos).
             let sh_b = sh.clone();
             std::thread::spawn(move || {
@@ -812,6 +880,7 @@ fn main() {
                 proxy_port,
                 data_dir: web_dir.clone(),
                 fp_key,
+                fp_seed: rand::random(),
             });
             // En Linux la ventana no lleva la barra del sistema (en Ubuntu/WSL solo traía la ×):
             // Sombra pone − □ × juntos a la derecha de las pestañas. En Windows, la del sistema.
@@ -824,7 +893,7 @@ fn main() {
             let size = window.inner_size()?;
             let ui = tabs::engine_setup(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())))
                 .auto_resize()
-                .initialization_script(format!("window.__SYS_LANGS = {};", json!(sys_langs)));
+                .initialization_script(format!("window.__SYS_LANGS = {}; window.__SYS_TZ = {};", json!(sys_langs), json!(sys_tz)));
             // Solo en pruebas: guarda los errores de la interfaz para poder diagnosticarlos.
             #[cfg(debug_assertions)]
             let ui = ui.initialization_script(
