@@ -105,6 +105,7 @@ I18N.pl = {
   vEmpty: "Brak zapisanych haseł. Sombra zapyta, gdy zalogujesz się lub zarejestrujesz na stronie.",
   winMin: "Minimalizuj",
   winMax: "Maksymalizuj / przywróć",
+  winClose: "Zamknij",
   fpStrict: "Wzmocniona ochrona przed odciskiem przeglądarki",
   fpStrictNote: "Jak Tor Browser: strony widzą angielski, czas UTC i zaokrąglony rozmiar strony (z ramkami), więc wielu użytkowników Sombry wygląda tak samo. Strony będą po angielsku i z czasem Greenwich. Zmiana języka działa po ponownym uruchomieniu Sombry.",
 };

@@ -105,6 +105,7 @@ I18N.en = {
   vEmpty: "No saved passwords yet. Sombra will ask you when you log in or sign up on a site.",
   winMin: "Minimize",
   winMax: "Maximize / restore",
+  winClose: "Close",
   fpStrict: "Stronger fingerprint protection",
   fpStrictNote: "Like Tor Browser: sites see English, UTC time and a rounded page size (with borders), so many Sombra users look the same. Sites will be shown in English and with Greenwich time. The language change applies after restarting Sombra.",
 };

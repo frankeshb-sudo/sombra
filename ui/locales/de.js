@@ -105,6 +105,7 @@ I18N.de = {
   vEmpty: "Noch keine gespeicherten Passwörter. Sombra fragt dich, wenn du dich auf einer Website anmeldest oder registrierst.",
   winMin: "Minimieren",
   winMax: "Maximieren / wiederherstellen",
+  winClose: "Schließen",
   fpStrict: "Verstärkter Schutz vor Fingerprinting",
   fpStrictNote: "Wie Tor Browser: Websites sehen Englisch, UTC-Zeit und eine gerundete Seitengröße (mit Rändern), so sehen viele Sombra-Nutzer gleich aus. Websites erscheinen auf Englisch und mit Greenwich-Zeit. Die Sprachänderung gilt nach einem Neustart von Sombra.",
 };

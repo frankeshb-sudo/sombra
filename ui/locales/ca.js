@@ -105,6 +105,7 @@ I18N.ca = {
   vEmpty: "Encara no hi ha contrasenyes desades. Sombra t'ho preguntarà quan entris o et registris en una web.",
   winMin: "Minimitza",
   winMax: "Maximitza / restaura",
+  winClose: "Tanca",
   fpStrict: "Protecció reforçada contra l'empremta digital",
   fpStrictNote: "Com Tor Browser: les webs veuen anglès, hora UTC i una mida de pàgina arrodonida (amb vores), així molts usuaris de Sombra semblen el mateix. Les webs es mostraran en anglès i amb l'hora de Greenwich. El canvi d'idioma s'aplica en reiniciar Sombra.",
 };

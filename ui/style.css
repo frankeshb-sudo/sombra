@@ -40,7 +40,10 @@ button { cursor: pointer; }
 
 #top { background: var(--bar); flex: none; }
 #tabbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px 0; }
-#winctl { margin-left: auto; display: flex; gap: 2px; }
+#winctl { margin-left: auto; display: flex; gap: 2px; flex: none; align-self: flex-start; }
+#winctl .icon { padding: 6px 10px; }
+#btn-close:hover { background: #e81123; color: #fff; }
+.brand, #btn-newtab { flex: none; }
 #winctl.hidden { display: none; }
 .brand { color: var(--accent2); padding: 0 6px; display: flex; }
 .brand svg { width: 20px; height: 20px; fill: var(--accent2); stroke: none; }
@@ -84,6 +87,8 @@ select.pill { appearance: none; padding-right: 10px; max-width: 150px; }
 .alert button.no { background: transparent; color: var(--text); border: 1px solid var(--text); }
 
 main { flex: 1; display: flex; min-height: 0; }
+/* Ventana sin barra del sistema (Linux): un borde fino para poder redimensionarla. */
+html.frameless main { padding: 0 4px 4px; background: var(--bar2); }
 #content { flex: 1; position: relative; min-width: 0; }
 #newtab { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 8vh 16px 24px; }
 .hero { text-align: center; width: min(560px, 100%); }
@@ -170,8 +175,17 @@ main { flex: 1; display: flex; min-height: 0; }
 
 /* Pantallas pequeñas y tablets: botones más grandes, menos adornos. */
 @media (max-width: 720px) {
-  #country, #btn-fwd, .brand { display: none; }
+  #btn-fwd, .brand { display: none; }
+  select.pill { max-width: 110px; text-overflow: ellipsis; }
   #panel { position: absolute; right: 0; top: 0; bottom: 0; width: min(320px, 100%); }
+}
+/* Ventana muy estrecha: el escudo solo con el icono y el país más corto, para que la
+   barra de direcciones siga siendo usable. */
+@media (max-width: 600px) {
+  #shield-txt, #btn-home { display: none; }
+  select.pill { max-width: 76px; padding-left: 8px; padding-right: 6px; }
+  #toolbar { gap: 3px; }
+  #addr-form { min-width: 110px; }
 }
 @media (pointer: coarse) {
   .icon { padding: 9px; }

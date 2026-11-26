@@ -11,6 +11,8 @@ tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
 tauri = { version = "2.12", features = ["unstable"] }
+# Solo para ResizeDirection (redimensionar la ventana sin barra del sistema en Linux).
+tauri-runtime = "=2.12.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

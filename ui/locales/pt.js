@@ -105,6 +105,7 @@ I18N.pt = {
   vEmpty: "Ainda não há palavras-passe guardadas. O Sombra perguntará quando entrar ou se registar num site.",
   winMin: "Minimizar",
   winMax: "Maximizar / restaurar",
+  winClose: "Fechar",
   fpStrict: "Proteção reforçada contra impressão digital",
   fpStrictNote: "Como o Tor Browser: os sites veem inglês, hora UTC e um tamanho de página arredondado (com margens), assim muitos utilizadores do Sombra parecem iguais. Os sites aparecerão em inglês e com a hora de Greenwich. A mudança de idioma aplica-se ao reiniciar o Sombra.",
 };

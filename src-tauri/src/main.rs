@@ -198,12 +198,30 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
     Ok(json!(*sh.settings.lock()))
 }
 
-/// Botones de la ventana: "min" (minimizar) o "max" (maximizar / restaurar).
+/// Barra de la ventana propia (Linux): "min", "max" (maximizar / restaurar), "close"
+/// y "drag" (mover la ventana arrastrando la barra de pestañas).
 #[tauri::command]
 fn window_action(app: AppHandle, action: String) -> Result<(), String> {
     let w = app.get_window("main").ok_or("sin ventana")?;
     match action.as_str() {
         "min" => w.minimize().map_err(e2s),
+        "close" => w.close().map_err(e2s),
+        "drag" => w.start_dragging().map_err(e2s),
+        a if a.starts_with("resize:") => {
+            use tauri_runtime::ResizeDirection as D;
+            let d = match &a[7..] {
+                "North" => D::North,
+                "South" => D::South,
+                "East" => D::East,
+                "West" => D::West,
+                "NorthEast" => D::NorthEast,
+                "NorthWest" => D::NorthWest,
+                "SouthEast" => D::SouthEast,
+                "SouthWest" => D::SouthWest,
+                _ => return Err("dirección desconocida".into()),
+            };
+            w.start_resize_dragging(d).map_err(e2s)
+        }
         "max" => {
             if w.is_maximized().map_err(e2s)? {
                 w.unmaximize().map_err(e2s)
@@ -669,10 +687,13 @@ fn main() {
                 data_dir: web_dir.clone(),
                 fp_key,
             });
+            // En Linux la ventana no lleva la barra del sistema (en Ubuntu/WSL solo traía la ×):
+            // Sombra pone − □ × juntos a la derecha de las pestañas. En Windows, la del sistema.
             let window = tauri::window::WindowBuilder::new(app, "main")
                 .title("Sombra")
                 .inner_size(1200.0, 800.0)
                 .min_inner_size(420.0, 360.0)
+                .decorations(cfg!(windows))
                 .build()?;
             let size = window.inner_size()?;
             let ui = tabs::engine_setup(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())))

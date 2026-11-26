@@ -530,10 +530,35 @@ $('s-cleanexit').onchange = (e) => save({ clean_on_exit: e.target.checked });
 $('s-histsearch').onchange = (e) => save({ history_searches: e.target.checked });
 $('s-fpstrict').onchange = (e) => save({ fp_strict: e.target.checked });
 // Botones de la ventana. En Windows ya los pone el sistema en la barra de título.
-if (!/Windows/.test(navigator.userAgent)) $('winctl').classList.remove('hidden');
+const FRAMELESS = !/Windows/.test(navigator.userAgent);
+if (FRAMELESS) { $('winctl').classList.remove('hidden'); document.documentElement.classList.add('frameless'); }
+// Sin barra del sistema, los bordes de la ventana (5 px) sirven para cambiar su tamaño.
+const EDGE = 5;
+const edgeDir = (e) => {
+  let d = e.clientY < EDGE ? 'North' : e.clientY >= innerHeight - EDGE ? 'South' : '';
+  d += e.clientX < EDGE ? 'West' : e.clientX >= innerWidth - EDGE ? 'East' : '';
+  return d;
+};
+const EDGE_CURSOR = { North: 'ns-resize', South: 'ns-resize', East: 'ew-resize', West: 'ew-resize', NorthEast: 'nesw-resize', SouthWest: 'nesw-resize', NorthWest: 'nwse-resize', SouthEast: 'nwse-resize' };
+if (FRAMELESS) {
+  document.addEventListener('mousemove', (e) => { document.documentElement.style.cursor = EDGE_CURSOR[edgeDir(e)] || ''; });
+  document.addEventListener('mousedown', (e) => {
+    const d = e.button === 0 && edgeDir(e);
+    if (!d) return;
+    e.preventDefault(); e.stopPropagation();
+    invoke('window_action', { action: 'resize:' + d });
+  }, true);
+}
 $('btn-min').onclick = () => invoke('window_action', { action: 'min' });
 $('btn-max').onclick = () => invoke('window_action', { action: 'max' });
-$('tabbar').addEventListener('dblclick', (e) => { if (e.target === $('tabbar') || e.target === $('tabs')) invoke('window_action', { action: 'max' }); });
+$('btn-close').onclick = () => invoke('window_action', { action: 'close' });
+// La zona vacía de la barra de pestañas mueve la ventana; doble clic la maximiza.
+$('tabbar').addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || $('winctl').classList.contains('hidden')) return;
+  if (e.target !== $('tabbar') && e.target !== $('tabs') && !e.target.closest('.brand')) return;
+  e.preventDefault();
+  invoke('window_action', { action: e.detail === 2 ? 'max' : 'drag' });
+});
 document.querySelectorAll('input[name=hmode]').forEach(r => { r.onchange = () => save({ history_mode: r.value }); });
 $('s-engine').onchange = (e) => {
   const custom = e.target.value === 'custom';

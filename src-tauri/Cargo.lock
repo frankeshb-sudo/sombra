@@ -5549,6 +5549,7 @@ dependencies = [
  "sys-locale",
  "tauri",
  "tauri-build",
+ "tauri-runtime",
  "tokio",
  "tor-rtcompat",
  "url",
