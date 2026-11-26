@@ -1,7 +1,7 @@
 fn main() {
     // Cada orden de Sombra necesita permiso explícito (capabilities/):
     //  - la interfaz ("ui") puede usar todas,
-    //  - las webs de las pestañas, solo `cred_capture` (avisar de una contraseña enviada).
+    //  - las webs de las pestañas, ninguna: ni siquiera tienen canal con Sombra (vendor/PARCHE.md).
     const COMMANDS: &[&str] = &[
         "get_state",
         "new_tab",
@@ -37,7 +37,6 @@ fn main() {
         "vault_matches",
         "vault_fill",
         "cred_answer",
-        "cred_capture",
     ];
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)))
         .expect("tauri build");

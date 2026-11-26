@@ -67,13 +67,23 @@ fn privacy_script(fp_key: &str) -> String {
     r#"(() => {
   try {
     const hide = (o, k) => { try { delete o[k]; } catch (e) {} try { Object.defineProperty(o, k, { value: undefined, configurable: true }); } catch (e) {} };
+    // Las pestañas no tienen ninguna conexión con Sombra (Tauri parcheado, ver
+    // vendor/PARCHE.md). En Windows, WebView2 añade window.chrome.webview: se quita.
+    try { if (window.chrome && window.chrome.webview) delete window.chrome.webview; } catch (e) {}
+    const J = JSON.stringify;
+    // Contador de intentos de huella digital (lo lee Sombra con page_privacy).
+    const st = { fp: 0, kinds: {} };
+    // Contraseñas enviadas, esperando a que Sombra las recoja.
+    const pend = [];
+    const api = Object.freeze({
+      read: () => J(st),
+      take: () => { const out = []; for (const it of pend) { out.push({ user: it.user, pass: it.pass }); it.done(); } pend.length = 0; return J({ host: location.hostname, items: out }); },
+    });
+    try { Object.defineProperty(window, '__FPKEY__', { value: api }); } catch (e) {}
     // Contraseñas: al enviar un formulario con contraseña, Sombra pregunta si se guarda.
-    // La conexión con Sombra se guarda al empezar, antes que el código de la web; y
-    // solo permite esta orden (ver capabilities/tabs.json). La web se identifica en
-    // Sombra por la dirección real de la pestaña, no por lo que diga la página.
+    // La página no avisa a nadie: Sombra pasa a recoger el aviso cada poco (take). La web
+    // se identifica en Sombra por la dirección real de la pestaña, no por lo que diga la página.
     if (window.top === window) {
-      const TI = window.__TAURI_INTERNALS__;
-      const inv = TI && TI.invoke;
       const fsubmit = HTMLFormElement.prototype.submit;
       const sent = new Map();
       const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
@@ -82,10 +92,9 @@ fn privacy_script(fp_key: &str) -> String {
         const u = ins.find(e => /user|mail|login|name|usuario|correo/i.test((e.name || '') + (e.id || '') + (e.autocomplete || ''))) || ins[0];
         return u ? u.value.slice(0, 200) : '';
       };
-      // Devuelve una promesa que se cumple cuando Sombra ha recibido el aviso (o null).
+      // Devuelve una promesa que se cumple cuando Sombra ha recogido el aviso (o null).
       const grab = (t) => {
         try {
-          if (!inv) return null;
           const root = (t && t.closest && t.closest('form')) || document;
           const pws = [...root.querySelectorAll('input[type=password]')].filter(e => e.value && vis(e));
           if (!pws.length) return null;
@@ -93,7 +102,7 @@ fn privacy_script(fp_key: &str) -> String {
           if (pass.length > 512) return null;
           const user = userOf(root, pws[0]);
           const k = user + '\n' + pass;
-          if (!sent.has(k)) sent.set(k, Promise.resolve(inv.call(TI, 'cred_capture', { user, pass })).catch(() => {}));
+          if (!sent.has(k)) sent.set(k, new Promise(done => pend.push({ user, pass, done })));
           return sent.get(k);
         } catch (e) { return null; }
       };
@@ -117,14 +126,9 @@ fn privacy_script(fp_key: &str) -> String {
       }, true);
       addEventListener('keydown', e => { if (e.key === 'Enter' && e.target && e.target.type === 'password') grab(e.target); }, true);
     }
-    // Que las webs no sepan que esto es una app Tauri.
-    ['__TAURI_INTERNALS__','__TAURI__','__TAURI_PATTERN__','__TAURI_EVENT_PLUGIN_INTERNALS__','__TAURI_ISOLATION_HOOK__','__TAURI_METADATA__'].forEach(k => hide(window, k));
     // WebRTC fuera: es la fuga de IP más típica.
     ['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','RTCSessionDescription','RTCIceCandidate','RTCRtpReceiver','RTCRtpSender'].forEach(k => hide(window, k));
-    // Contador de intentos de huella digital + ruido en canvas.
-    const KEY = '__FPKEY__';
-    const st = { fp: 0, kinds: {} };
-    try { Object.defineProperty(window, KEY, { value: st, enumerable: false }); } catch (e) {}
+    // Ruido en canvas y aviso de intentos de huella digital.
     const note = (k) => { st.fp++; st.kinds[k] = (st.kinds[k] || 0) + 1; };
     const noise = (data) => { for (let i = 0; i < data.length; i += 97) { data[i] = data[i] ^ 1; } };
     const C2D = window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype;

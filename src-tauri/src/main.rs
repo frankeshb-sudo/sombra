@@ -313,7 +313,7 @@ async fn page_privacy(app: AppHandle, sh: Sh<'_>) -> Result<Value, String> {
         return Ok(json!(null));
     }
     let key = &tabs::ENGINE.get().map(|e| e.fp_key.clone()).unwrap_or_default();
-    let js = format!("(() => {{ const s = window['{key}']; return JSON.stringify(s || {{ fp: 0, kinds: {{}} }}); }})()");
+    let js = format!("(() => {{ const s = window['{key}']; return s ? s.read() : JSON.stringify({{ fp: 0, kinds: {{}} }}); }})()");
     tabs::eval_tab(&app, id, js).await.map_err(e2s)
 }
 
@@ -453,26 +453,40 @@ fn cred_answer(sh: Sh, id: u64, action: String) -> Result<(), String> {
     Ok(())
 }
 
-/// La única orden que pueden llamar las pestañas: el script de Sombra avisa de
-/// que se ha enviado un formulario con contraseña. La web se toma del motor, no
-/// de lo que diga la página.
-#[tauri::command]
-fn cred_capture(webview: tauri::Webview, sh: Sh, user: String, pass: String) {
-    let pass = zeroize::Zeroizing::new(pass);
-    if !webview.label().starts_with("tab-") || pass.is_empty() || pass.len() > 512 || user.len() > 200 {
+/// Recoge de la pestaña activa los avisos "se ha enviado una contraseña".
+/// Las pestañas no tienen ningún canal con Sombra (ver vendor/PARCHE.md): es Sombra quien
+/// pasa a preguntar. La web se toma del motor; si la página dice otra cosa, se descarta.
+async fn collect_creds(app: &AppHandle, sh: &Shared) {
+    let Some(id) = tabs::active_id(sh) else { return };
+    if !sh.tabs.lock().list.iter().any(|t| t.id == id && t.has_view) {
         return;
     }
-    let Ok(url) = webview.url() else { return };
+    let Some(wv) = app.get_webview(&tabs::label(id)) else { return };
+    let Ok(url) = wv.url() else { return };
     if !matches!(url.scheme(), "http" | "https") {
         return;
     }
-    let Some(host) = url.host_str() else { return };
-    #[cfg(debug_assertions)]
-    if std::env::var("SOMBRA_SELFTEST").is_ok() {
-        log::warn!("SELFTEST aviso recibido de {host} (usuario: {user})");
+    let Some(host) = url.host_str().map(str::to_owned) else { return };
+    let key = tabs::ENGINE.get().map(|e| e.fp_key.clone()).unwrap_or_default();
+    let js = format!("(() => {{ const s = window['{key}']; return s ? s.take() : null; }})()");
+    let Ok(v) = tabs::eval_tab(app, id, js).await else { return };
+    let Some(items) = v.get("items").and_then(Value::as_array) else { return };
+    if items.is_empty() || v.get("host").and_then(Value::as_str) != Some(host.as_str()) {
+        return;
     }
-    if let Some(q) = sh.vault.capture(host, user.trim(), pass) {
-        sh.emit("cred", q);
+    for it in items.iter().take(5) {
+        let user = it.get("user").and_then(Value::as_str).unwrap_or("");
+        let pass = zeroize::Zeroizing::new(it.get("pass").and_then(Value::as_str).unwrap_or("").to_string());
+        if pass.is_empty() || pass.len() > 512 || user.len() > 200 {
+            continue;
+        }
+        #[cfg(debug_assertions)]
+        if std::env::var("SOMBRA_SELFTEST").is_ok() {
+            log::warn!("SELFTEST aviso recibido de {host} (usuario: {user})");
+        }
+        if let Some(q) = sh.vault.capture(&host, user.trim(), pass) {
+            sh.emit("cred", q);
+        }
     }
 }
 
@@ -524,7 +538,6 @@ fn main() {
             vault_matches,
             vault_fill,
             cred_answer,
-            cred_capture,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -565,6 +578,15 @@ fn main() {
                 }
             });
 
+            // Avisos de contraseñas enviadas en la pestaña activa (ver collect_creds).
+            let (app_c, sh_c) = (handle.clone(), sh.clone());
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    collect_creds(&app_c, &sh_c).await;
+                }
+            });
+
             // Solo en pruebas (SOMBRA_SELFTEST=1): entra en una web de práctica con datos falsos
             // y comprueba que llega el aviso "¿Guardar la contraseña?".
             #[cfg(debug_assertions)]
@@ -577,6 +599,10 @@ fn main() {
                     let Ok(id) = tabs::new_tab(&app2, &sh2, Some("https://the-internet.herokuapp.com/login".into())).await else { return };
                     tabs::wait_loaded(&sh2, id, 60).await;
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    // ¿Ve la web algún rastro de Tauri / wry / WebView?
+                    let t = "(() => JSON.stringify({ g: Object.getOwnPropertyNames(window).filter(k => /tauri|ipc|wry|webview|messageHandlers/i.test(k)), isTauri: 'isTauri' in window, internals: '__TAURI_INTERNALS__' in window, ipc: 'ipc' in window, webkitHandlers: !!(window.webkit && window.webkit.messageHandlers), chromeWebview: !!(window.chrome && window.chrome.webview) }))()";
+                    let r = tabs::eval_tab(&app2, id, t.into()).await;
+                    log::warn!("SELFTEST rastros: {r:?}");
                     let js = "(() => { document.querySelector('#username').value = 'tomsmith'; document.querySelector('#password').value = 'SuperSecretPassword!'; document.querySelector('button[type=submit]').click(); return 'ok'; })()";
                     let r = tabs::eval_tab(&app2, id, js.into()).await;
                     log::warn!("SELFTEST relleno: {r:?}");

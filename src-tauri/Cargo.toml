@@ -45,3 +45,9 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# Tauri con el parche de Sombra: las pestañas se crean sin ningún rastro de Tauri.
+# Ver vendor/PARCHE.md (cómo actualizarlo) y tools/patch-tauri.py.
+[patch.crates-io]
+tauri = { path = "vendor/tauri" }
+tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }

@@ -65,10 +65,10 @@ Instalador (opcional): `cargo install tauri-cli --version "^2"` y luego `cargo t
 - Por Tor algunas webs van más lentas y muestran más CAPTCHAs.
 - Las webs pueden notar que el motor es WebView2/Chromium. Contra la huella digital, el Tor Browser oficial sigue siendo más fuerte.
 - Anuncios de YouTube: aún no (requiere scriptlets; previsto).
-- Las webs pueden saber que Sombra está hecho con Tauri (variables `isTauri` y `__TAURI_INTERNALS__`, que Tauri crea sin permitir borrarlas). No pueden usarlas para dar órdenes a Sombra: solo para el aviso de "¿Guardar la contraseña?" de su propia web.
+- Las pestañas no tienen ninguna conexión con Sombra ni rastros de Tauri (Tauri va parcheado, ver `src-tauri/vendor/PARCHE.md`). Aun así, una web siempre puede notar que el motor es una vista web de sistema y no un navegador conocido.
 - Contraseñas: si olvidas la contraseña maestra **y** pierdes las 12 palabras, no hay forma de recuperarlas (así nadie más puede).
 - Previsto: favoritos e historial dentro de la bóveda, recuperación con llave USB / otro dispositivo / personas de confianza, versión Android.
 
 ## Créditos
 
-Tor/Arti (The Tor Project, MIT/Apache-2.0), adblock-rust (Brave, MPL-2.0), listas EasyList (GPL-3.0/CC BY-SA 3.0), Tauri (MIT/Apache-2.0).
+Tor/Arti (The Tor Project, MIT/Apache-2.0), adblock-rust (Brave, MPL-2.0), listas EasyList (GPL-3.0/CC BY-SA 3.0), Tauri (MIT/Apache-2.0; copia con un pequeño parche en `src-tauri/vendor`).

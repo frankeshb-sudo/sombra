@@ -5952,8 +5952,6 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 [[package]]
 name = "tauri"
 version = "2.12.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30fbfbb9dc9a2697b0e96d909ddc295fb18d2d82a58ed542ab8d9eba2edbe6da"
 dependencies = [
  "anyhow",
  "bytes",
@@ -6092,8 +6090,6 @@ dependencies = [
 [[package]]
 name = "tauri-runtime-wry"
 version = "2.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8c14a025255cc9816d401635035075b09b6cc9973b7b8fd7b8fcb8753f30f92"
 dependencies = [
  "gtk",
  "http",
