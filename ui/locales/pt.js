@@ -152,4 +152,6 @@ I18N.pt = {
   certCancelNote: "Se cancelares a janela do certificado, esse site não o volta a pedir até fechares e abrires o Sombra.",
   sugSearch: "Pesquisar «{q}» no {e}",
   sugRemoveTip: "Shift+Delete: remover do histórico",
+  closedTabs: "Separadores fechados",
+  reopenTab: "Reabrir este separador (Ctrl+Shift+T reabre o último)",
 };

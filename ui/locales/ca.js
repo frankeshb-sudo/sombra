@@ -152,4 +152,6 @@ I18N.ca = {
   certCancelNote: "Si cancel·les la finestra del certificat, aquest web no te'l tornarà a demanar fins que tanquis i obris Sombra.",
   sugSearch: "Cerca «{q}» a {e}",
   sugRemoveTip: "Maj+Supr: treu-ho de l'historial",
+  closedTabs: "Pestanyes tancades",
+  reopenTab: "Torna a obrir aquesta pestanya (Ctrl+Maj+T obre l'última)",
 };

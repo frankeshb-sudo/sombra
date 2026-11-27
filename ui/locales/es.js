@@ -152,4 +152,6 @@ I18N.es = {
   certCancelNote: "Si cancelas la ventana del certificado, esa web no te lo vuelve a pedir hasta que cierres y abras Sombra.",
   sugSearch: "Buscar «{q}» en {e}",
   sugRemoveTip: "Mayús+Supr: quitar del historial",
+  closedTabs: "Pestañas cerradas",
+  reopenTab: "Reabrir esta pestaña (Ctrl+Mayús+T reabre la última)",
 };

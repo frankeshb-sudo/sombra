@@ -152,4 +152,6 @@ I18N.pl = {
   certCancelNote: "Jeśli anulujesz okno certyfikatu, ta strona nie poprosi o niego ponownie, dopóki nie zamkniesz i nie otworzysz Sombry.",
   sugSearch: "Szukaj „{q}” w {e}",
   sugRemoveTip: "Shift+Delete: usuń z historii",
+  closedTabs: "Ostatnio zamknięte karty",
+  reopenTab: "Otwórz ponownie tę kartę (Ctrl+Shift+T otwiera ostatnią)",
 };

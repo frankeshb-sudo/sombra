@@ -45,7 +45,22 @@ pub struct Tabs {
     pub rect: (f64, f64, f64, f64),
     /// Pestaña con un vídeo (o algo) a pantalla completa: ocupa toda la pantalla.
     pub fullscreen: Option<u32>,
+    /// Pestañas cerradas, la última al final, para reabrirlas (Ctrl+Mayús+T). Solo en memoria:
+    /// se pierden al cerrar Sombra y se borran con el limpiador.
+    pub closed: Vec<ClosedTab>,
 }
+
+#[derive(Clone, Serialize)]
+pub struct ClosedTab {
+    pub url: String,
+    pub title: String,
+    pub private: bool,
+    /// Sitio que tenía en la barra de pestañas.
+    #[serde(skip)]
+    pub pos: usize,
+}
+
+pub const MAX_CLOSED: usize = 25;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Bookmark {

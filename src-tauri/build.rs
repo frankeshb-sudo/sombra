@@ -6,6 +6,8 @@ fn main() {
         "get_state",
         "new_tab",
         "close_tab",
+        "reopen_tab",
+        "closed_tabs",
         "activate_tab",
         "navigate",
         "nav_action",

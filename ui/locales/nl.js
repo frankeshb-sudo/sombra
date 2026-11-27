@@ -152,4 +152,6 @@ I18N.nl = {
   certCancelNote: "Als je het certificaatvenster annuleert, vraagt die website er pas weer om nadat je Sombra hebt gesloten en opnieuw geopend.",
   sugSearch: "Zoek „{q}” met {e}",
   sugRemoveTip: "Shift+Delete: uit geschiedenis verwijderen",
+  closedTabs: "Onlangs gesloten tabbladen",
+  reopenTab: "Dit tabblad heropenen (Ctrl+Shift+T heropent het laatste)",
 };

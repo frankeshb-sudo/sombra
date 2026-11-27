@@ -152,4 +152,6 @@ I18N.ja = {
   certCancelNote: "証明書の画面をキャンセルすると、Sombra を閉じて開き直すまで、そのサイトは再び求めません。",
   sugSearch: "{e} で「{q}」を検索",
   sugRemoveTip: "Shift+Delete：履歴から削除",
+  closedTabs: "最近閉じたタブ",
+  reopenTab: "このタブを開き直す（Ctrl+Shift+T で最後のタブを開き直す）",
 };

@@ -351,7 +351,27 @@ async function save(patch) {
   }
 }
 
+// Pestañas cerradas (solo en memoria): arriba del historial, para reabrirlas.
+async function loadClosed() {
+  const items = await invoke('closed_tabs').catch(() => []);
+  const list = $('h-closed-list'); list.textContent = '';
+  $('h-closed').classList.toggle('hidden', !items.length);
+  items.slice(0, 10).forEach((it, i) => {
+    const row = el('div', 'h-item');
+    const tx = el('div', 'tx');
+    const tt = el('div', 'tt', it.title || hostOf(it.url));
+    if (it.private) tt.prepend(el('span', 'h-sombra', 'Sombra'));
+    tx.append(tt, el('div', 'uu', it.url));
+    row.append(tx);
+    row.title = t('reopenTab');
+    // La lista viene de la más reciente a la más antigua; Rust la guarda al revés.
+    row.onclick = () => { closePage(); invoke('reopen_tab', { index: items.length - 1 - i }); };
+    list.append(row);
+  });
+}
+
 async function loadHistory() {
+  loadClosed();
   const q = $('h-search').value;
   const r = await invoke('get_history', { query: q, limit: 500 });
   const list = $('h-list'); list.textContent = '';
@@ -753,6 +773,7 @@ function runShortcut(n) {
     // Pestaña nueva: el cursor queda en la barra de direcciones para escribir (como en Chrome).
     case 'newtab': $('btn-newtab').click(); $('addr').focus(); break;
     case 'newtab-private': $('btn-newtab-private').click(); $('addr').focus(); break;
+    case 'reopen': invoke('reopen_tab', {}).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); break;
     case 'close': if (S && S.active) invoke('close_tab', { id: S.active }); break;
     case 'addr': $('addr').focus(); break;
     case 'reload': invoke('nav_action', { action: 'reload' }); break;
@@ -767,6 +788,7 @@ function runShortcut(n) {
 function keyShortcut(e) {
   const k = e.key.toLowerCase(), c = e.ctrlKey, s = e.shiftKey, a = e.altKey;
   if (c && !s && !a && k === 't') return 'newtab';
+  if (c && s && !a && k === 't') return 'reopen';
   if (c && s && !a && k === 'n') return 'newtab-private';
   if (c && !s && !a && (k === 'w' || k === 'f4')) return 'close';
   if ((c && !s && !a && k === 'l') || (a && !c && !s && k === 'd') || (k === 'f6' && !c && !a)) return 'addr';

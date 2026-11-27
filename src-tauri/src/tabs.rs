@@ -741,6 +741,7 @@ pub fn shortcut(k: Key, ctrl: bool, shift: bool, alt: bool) -> Option<&'static s
     use Key::*;
     Some(match (k, ctrl, shift, alt) {
         (Ch('t'), true, false, false) => "newtab",
+        (Ch('t'), true, true, false) => "reopen",
         (Ch('n'), true, true, false) => "newtab-private",
         (Ch('w'), true, false, false) | (F(4), true, false, false) => "close",
         (Ch('l'), true, false, false) | (Ch('d'), false, false, true) | (F(6), false, false, false) => "addr",
@@ -1295,7 +1296,15 @@ pub async fn close(app: &AppHandle, sh: &Arc<Shared>, id: u32) -> anyhow::Result
         let mut t = sh.tabs.lock();
         let pos = t.list.iter().position(|x| x.id == id);
         if let Some(p) = pos {
-            t.list.remove(p);
+            let old = t.list.remove(p);
+            // Solo las que tenían una web abierta (no las de inicio ni los avisos).
+            if old.has_view && (old.url.starts_with("https://") || old.url.starts_with("http://")) {
+                t.closed.push(crate::state::ClosedTab { url: old.url, title: old.title, private: old.private, pos: p });
+                let n = t.closed.len();
+                if n > crate::state::MAX_CLOSED {
+                    t.closed.drain(0..n - crate::state::MAX_CLOSED);
+                }
+            }
             if t.active == Some(id) {
                 let n = t.list.len();
                 t.active = if n == 0 { None } else { Some(t.list[p.min(n - 1)].id) };
@@ -1311,6 +1320,45 @@ pub async fn close(app: &AppHandle, sh: &Arc<Shared>, id: u32) -> anyhow::Result
         emit_tabs(sh);
     }
     Ok(())
+}
+
+/// Reabre una pestaña cerrada (`index` en la lista de cerradas; sin él, la última), en su modo
+/// (normal o Sombra) y en su sitio. Si la pestaña activa está vacía y es del mismo modo (la que
+/// se abre sola al cerrar la última), se usa esa en lugar de abrir otra.
+pub async fn reopen(app: &AppHandle, sh: &Arc<Shared>, index: Option<usize>) -> anyhow::Result<Option<u32>> {
+    let (c, reuse) = {
+        let mut t = sh.tabs.lock();
+        let i = match index {
+            Some(i) if i < t.closed.len() => i,
+            Some(_) => return Ok(None),
+            None if t.closed.is_empty() => return Ok(None),
+            None => t.closed.len() - 1,
+        };
+        let c = t.closed.remove(i);
+        let reuse = t
+            .active
+            .and_then(|a| t.list.iter().find(|x| x.id == a))
+            .filter(|x| !x.has_view && !x.https_warn && x.url.is_empty() && x.private == c.private)
+            .map(|x| x.id);
+        (c, reuse)
+    };
+    let id = match reuse {
+        Some(id) => id,
+        None => {
+            let id = new_tab_mode(app, sh, None, c.private).await?;
+            let mut t = sh.tabs.lock();
+            if let Some(p) = t.list.iter().position(|x| x.id == id) {
+                let tab = t.list.remove(p);
+                let at = c.pos.min(t.list.len());
+                t.list.insert(at, tab);
+            }
+            id
+        }
+    };
+    navigate(app, sh, id, &c.url).await?;
+    layout(app, sh);
+    emit_tabs(sh);
+    Ok(Some(id))
 }
 
 /// Inicio: la pestaña vuelve a la pantalla de inicio. Se cierra su vista web,

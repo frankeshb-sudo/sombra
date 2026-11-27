@@ -152,4 +152,6 @@ I18N.de = {
   certCancelNote: "Wenn du das Zertifikatsfenster abbrichst, fragt diese Website erst wieder, nachdem du Sombra geschlossen und neu geöffnet hast.",
   sugSearch: "„{q}“ mit {e} suchen",
   sugRemoveTip: "Umschalt+Entf: aus dem Verlauf entfernen",
+  closedTabs: "Kürzlich geschlossene Tabs",
+  reopenTab: "Diesen Tab wieder öffnen (Strg+Umschalt+T öffnet den letzten)",
 };

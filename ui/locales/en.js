@@ -152,4 +152,6 @@ I18N.en = {
   certCancelNote: "If you cancel the certificate window, that site won't ask again until you close and reopen Sombra.",
   sugSearch: "Search {e} for “{q}”",
   sugRemoveTip: "Shift+Delete: remove from history",
+  closedTabs: "Recently closed tabs",
+  reopenTab: "Reopen this tab (Ctrl+Shift+T reopens the last one)",
 };

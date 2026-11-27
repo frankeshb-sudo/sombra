@@ -152,4 +152,6 @@ I18N.fr = {
   certCancelNote: "Si vous annulez la fenêtre du certificat, ce site ne le redemandera pas tant que vous n'aurez pas fermé et rouvert Sombra.",
   sugSearch: "Rechercher « {q} » avec {e}",
   sugRemoveTip: "Maj+Suppr : retirer de l'historique",
+  closedTabs: "Onglets récemment fermés",
+  reopenTab: "Rouvrir cet onglet (Ctrl+Maj+T rouvre le dernier)",
 };

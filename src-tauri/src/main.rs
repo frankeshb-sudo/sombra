@@ -109,6 +109,18 @@ async fn close_tab(app: AppHandle, sh: Sh<'_>, id: u32) -> Result<(), String> {
     tabs::close(&app, &sh, id).await.map_err(e2s)
 }
 
+/// Reabre una pestaña cerrada (la última si no se dice cuál).
+#[tauri::command]
+async fn reopen_tab(app: AppHandle, sh: Sh<'_>, index: Option<usize>) -> Result<Option<u32>, String> {
+    tabs::reopen(&app, &sh, index).await.map_err(e2s)
+}
+
+/// Pestañas cerradas, la más reciente primero.
+#[tauri::command]
+fn closed_tabs(sh: Sh) -> Vec<state::ClosedTab> {
+    sh.tabs.lock().closed.iter().rev().cloned().collect()
+}
+
 #[tauri::command]
 fn activate_tab(app: AppHandle, sh: Sh, id: u32) {
     tabs::activate(&app, &sh, id);
@@ -378,6 +390,7 @@ async fn clean(app: AppHandle, sh: Sh<'_>, opts: Value) -> Result<Value, String>
     let mut done = Vec::new();
     if on("history") {
         sh.clear_history();
+        sh.tabs.lock().closed.clear();
         done.push("history");
     }
     if on("cache") {
@@ -402,6 +415,8 @@ async fn clean(app: AppHandle, sh: Sh<'_>, opts: Value) -> Result<Value, String>
         for id in ids {
             let _ = tabs::close(&app, &sh, id).await;
         }
+        // Cerrar todas para borrarlas: tampoco se pueden reabrir.
+        sh.tabs.lock().closed.clear();
         done.push("tabs");
     }
     if on("stats") {
@@ -764,6 +779,8 @@ fn main() {
             open_cert_manager,
             new_tab,
             close_tab,
+            reopen_tab,
+            closed_tabs,
             activate_tab,
             navigate,
             nav_action,
@@ -860,9 +877,44 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos" && v != "afirma")
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=reabrir): reabrir pestañas cerradas.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("reabrir") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let lista = |sh: &Arc<Shared>| {
+                        let t = sh.tabs.lock();
+                        let l: Vec<String> = t.list.iter().map(|x| format!("{}{}:{}", if Some(x.id) == t.active { "*" } else { "" }, if x.private { "S" } else { "N" }, x.url)).collect();
+                        format!("{l:?} cerradas={}", t.closed.len())
+                    };
+                    let a = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikipedia.org/".into()), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, a, 60).await;
+                    let b = tabs::new_tab_mode(&app2, &sh2, Some("https://example.com/".into()), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, b, 60).await;
+                    log::warn!("SECTEST reabrir 1 abiertas: {}", lista(&sh2));
+                    let _ = tabs::close(&app2, &sh2, a).await;
+                    log::warn!("SECTEST reabrir 2 cerrada wikipedia: {}", lista(&sh2));
+                    let r = tabs::reopen(&app2, &sh2, None).await;
+                    log::warn!("SECTEST reabrir 3 reabierta {r:?}: {}", lista(&sh2));
+                    let ids: Vec<u32> = sh2.tabs.lock().list.iter().map(|t| t.id).collect();
+                    for id in ids {
+                        let _ = tabs::close(&app2, &sh2, id).await;
+                    }
+                    log::warn!("SECTEST reabrir 4 todas cerradas: {}", lista(&sh2));
+                    let r = tabs::reopen(&app2, &sh2, None).await;
+                    log::warn!("SECTEST reabrir 5 reabre en la vacía {r:?}: {}", lista(&sh2));
+                    let r = tabs::reopen(&app2, &sh2, Some(99)).await;
+                    log::warn!("SECTEST reabrir 6 índice malo {r:?}");
+                    let _ = clean(app2.clone(), app2.state::<Arc<Shared>>(), json!({ "tabs": true })).await;
+                    log::warn!("SECTEST reabrir 7 tras limpiar pestañas: {}", lista(&sh2));
+                    log::warn!("SECTEST reabrir fin");
+                });
             }
 
             // Solo en pruebas (SOMBRA_SECTEST=afirma): AutoFirma solo abre los puertos de su enlace
@@ -1022,7 +1074,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos" && v != "afirma") {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {

@@ -152,4 +152,6 @@ I18N.zh = {
   certCancelNote: "如果取消证书窗口，在关闭并重新打开 Sombra 之前，该网站不会再次请求。",
   sugSearch: "用 {e} 搜索“{q}”",
   sugRemoveTip: "Shift+Delete：从历史记录中删除",
+  closedTabs: "最近关闭的标签页",
+  reopenTab: "重新打开此标签页（Ctrl+Shift+T 重新打开最后一个）",
 };

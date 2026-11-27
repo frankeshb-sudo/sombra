@@ -10,6 +10,8 @@
     "allow-get-state",
     "allow-new-tab",
     "allow-close-tab",
+    "allow-reopen-tab",
+    "allow-closed-tabs",
     "allow-activate-tab",
     "allow-navigate",
     "allow-nav-action",

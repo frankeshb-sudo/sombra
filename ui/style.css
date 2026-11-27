@@ -184,6 +184,7 @@ html.frameless main { padding: 0 4px 4px; background: var(--bar2); }
 .ok-msg { color: var(--ok); font-size: 12px; margin: 8px 0 0; }
 .hist-tools { display: flex; gap: 8px; align-items: center; }
 .hist-tools .btn { margin: 0; white-space: nowrap; }
+.h-sombra { font-size: .8em; background: var(--sombra-bg); color: var(--sombra-text); border-radius: 5px; padding: 1px 6px; margin-right: 6px; }
 .h-day { margin: 14px 0 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
 .h-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
 .h-item:hover { background: var(--bar2); }
