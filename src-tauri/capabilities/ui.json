@@ -43,6 +43,8 @@
     "allow-cred-answer",
     "allow-window-action",
     "allow-set-js-site",
-    "allow-allow-http"
+    "allow-allow-http",
+    "allow-cert-info",
+    "allow-open-cert-manager"
   ]
 }

@@ -45,6 +45,12 @@ webpki-roots = "1"
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
 
+# Windows: acceso al motor WebView2 (certificado digital y apps externas como AutoFirma).
+# Mismas versiones que usa wry.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
+
 # Argon2 sin optimizar tarda varios segundos: se optimiza también en las pruebas.
 [profile.dev.package.argon2]
 opt-level = 3

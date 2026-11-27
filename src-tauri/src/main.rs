@@ -28,6 +28,46 @@ fn e2s(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// Certificado digital: qué se puede hacer en este sistema.
+#[tauri::command]
+fn cert_info() -> Value {
+    json!({ "manager": cfg!(windows), "autofirma": autofirma_installed() })
+}
+
+fn autofirma_installed() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // AutoFirma registra el protocolo afirma:// al instalarse.
+        std::process::Command::new("reg")
+            .args(["query", r"HKCR\afirma"])
+            .creation_flags(0x0800_0000)
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("xdg-mime")
+            .args(["query", "default", "x-scheme-handler/afirma"])
+            .output()
+            .is_ok_and(|o| o.status.success() && o.stdout.trim_ascii().ends_with(b".desktop"))
+    }
+}
+
+/// Abre el gestor de certificados de Windows (importar un .p12/.pfx, verlos, exportarlos).
+/// La contraseña del certificado la escribes tú en la ventana de Windows; Sombra no la ve.
+#[tauri::command]
+fn open_cert_manager() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("rundll32.exe").arg("cryptui.dll,CryptUIStartCertMgr").spawn().map(|_| ()).map_err(e2s)
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Solo en Windows".into())
+    }
+}
+
 #[tauri::command]
 fn get_state(sh: Sh) -> Value {
     let t = sh.tabs.lock();
@@ -663,6 +703,8 @@ fn main() {
         .manage(shared.clone())
         .invoke_handler(tauri::generate_handler![
             get_state,
+            cert_info,
+            open_cert_manager,
             new_tab,
             close_tab,
             activate_tab,
@@ -760,9 +802,55 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos")
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos" && v != "afirma")
             {
                 sh.settings.lock().default_private = true;
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=afirma): AutoFirma solo abre los puertos de su enlace
+            // y solo desde el modo normal.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("afirma") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let ev = |app: AppHandle, id: u32, js: String| async move {
+                        match tokio::time::timeout(std::time::Duration::from_secs(10), tabs::eval_tab(&app, id, js)).await {
+                            Ok(Ok(v)) => v.to_string(),
+                            r => format!("{r:?}"),
+                        }
+                    };
+                    let bloqueado = |sh: &Arc<Shared>, port: u16| sh.logs.lock().iter().any(|l| l.code == "localBlocked" && l.message.contains(&format!("127.0.0.1:{port}")));
+                    let sondear = |app: AppHandle, id: u32, port: u16| async move {
+                        let _ = ev(app, id, format!("(() => {{ fetch('https://127.0.0.1:{port}/afirma', {{ mode: 'no-cors' }}).catch(() => 0); return 'ok'; }})()")).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    };
+                    let n = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikipedia.org/".into()), false).await.unwrap_or(0);
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    tabs::wait_loaded(&sh2, n, 60).await;
+                    // 1) Sin AutoFirma: este PC cerrado.
+                    sondear(app2.clone(), n, 55001).await;
+                    log::warn!("SECTEST afirma 1 antes: 55001 bloqueado={}", bloqueado(&sh2, 55001));
+                    // 2) La web abre AutoFirma con sus puertos: solo esos se abren.
+                    let _ = ev(app2.clone(), n, "(() => { location.href = 'afirma://websocket?ports=55002,55003&v=4&idsession=x'; return 'ok'; })()".into()).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    log::warn!("SECTEST afirma 2 puertos: 55002={} 55003={} 55004={}", sh2.afirma_port(55002), sh2.afirma_port(55003), sh2.afirma_port(55004));
+                    sondear(app2.clone(), n, 55002).await;
+                    sondear(app2.clone(), n, 55004).await;
+                    log::warn!("SECTEST afirma 3 proxy: 55002 bloqueado={} 55004 bloqueado={}", bloqueado(&sh2, 55002), bloqueado(&sh2, 55004));
+                    // 4) Modo Sombra: AutoFirma no se abre ni abre puertos.
+                    while !sh2.tor.is_ready() {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    let p = tabs::new_tab_mode(&app2, &sh2, Some("https://check.torproject.org/".into()), true).await.unwrap_or(0);
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    tabs::wait_loaded(&sh2, p, 90).await;
+                    let _ = ev(app2.clone(), p, "(() => { location.href = 'afirma://websocket?ports=56001&v=4'; return 'ok'; })()".into()).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    sondear(app2.clone(), p, 55002).await;
+                    log::warn!("SECTEST afirma 4 sombra: 56001 abierto={} 55002 bloqueado desde Sombra={}", sh2.afirma_port(56001), bloqueado(&sh2, 55002));
+                    log::warn!("SECTEST afirma fin");
+                });
             }
 
             // Solo en pruebas (SOMBRA_SECTEST=modos): modo normal y modo Sombra.
@@ -876,7 +964,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos") {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos" && v != "afirma") {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {

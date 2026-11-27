@@ -85,7 +85,10 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>, private: bool) -> anyhow::Res
     // que tú has abierto, no lo que una web de internet pida por su cuenta.
     // Solo si la dirección es local en sí (192.168.1.1, router.lan...): un dominio de internet
     // abierto por ti nunca puede apuntar a tu red local (DNS rebinding).
-    let local_ok = !private && is_local(&host) && sh.is_top_level_host(&host);
+    // AutoFirma (modo normal): tras abrirla, la web le habla en este PC, solo por los puertos
+    // que iban en el enlace afirma://. Nunca a los puertos del propio Sombra.
+    let afirma_ok = !private && is_loopback(&host) && sh.afirma_port(port) && !own_port(port);
+    let local_ok = afirma_ok || !private && is_local(&host) && sh.is_top_level_host(&host);
     if is_local(&host) && !local_ok {
         sh.stats.leaks_blocked.fetch_add(1, Ordering::Relaxed);
         sh.sec("localBlocked", serde_json::json!({ "host": format!("{host}:{port}") }), format!("Bloqueado acceso a red local: {host}:{port}"));
@@ -149,6 +152,16 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>, private: bool) -> anyhow::Res
         _ = cut_signal => {}
     }
     Ok(())
+}
+
+fn is_loopback(host: &str) -> bool {
+    matches!(host.trim_end_matches('.'), "localhost" | "127.0.0.1" | "::1" | "[::1]")
+}
+
+/// Puertos en los que escucha el propio Sombra (proxys y puerta de control de las IAs).
+fn own_port(port: u16) -> bool {
+    // Sin motor todavía no se conocen: se trata como propio (no se deja pasar).
+    crate::tabs::ENGINE.get().map_or(true, |e| e.proxy_port == port || e.normal_port == port) || crate::control::port() == port
 }
 
 pub fn is_local(host: &str) -> bool {

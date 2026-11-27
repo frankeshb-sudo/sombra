@@ -322,6 +322,13 @@ function fillSettings() {
   document.querySelectorAll('input[name=hmode]').forEach(r => { r.checked = r.value === s.history_mode; });
   document.querySelectorAll('input[name=seclvl]').forEach(r => { r.checked = Number(r.value) === (s.security_level || 0); });
   document.querySelectorAll('#s-accent .sw').forEach(b => b.classList.toggle('on', b.dataset.k === s.accent));
+  invoke('cert_info').then(c => {
+    $('cert-mgr').classList.toggle('hidden', !c.manager);
+    $('cert-mgr-note').classList.toggle('hidden', !c.manager);
+    $('cert-af').textContent = t(c.autofirma ? 'afOk' : 'afNo');
+    $('cert-af').className = 'priv ' + (c.autofirma ? 'max' : 'low');
+    $('cert-afdl').classList.toggle('hidden', !!c.autofirma);
+  }).catch(() => {});
   const known = ENGINES.find(e => e[1] === s.search);
   $('s-engine').value = known ? s.search : 'custom';
   $('s-engine-custom').classList.toggle('hidden', !!known);
@@ -596,6 +603,8 @@ $('s-histsearch').onchange = (e) => save({ history_searches: e.target.checked })
 $('s-fpstrict').onchange = (e) => save({ fp_strict: e.target.checked });
 $('s-httpsonly').onchange = (e) => save({ https_only: e.target.checked });
 $('s-defprivate').onchange = (e) => save({ default_private: e.target.checked });
+$('cert-mgr').onclick = () => invoke('open_cert_manager').catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]]));
+$('cert-afdl').onclick = () => { closePage(); invoke('new_tab', { url: 'https://firmaelectronica.gob.es/Home/Descargas.html', private: false }); };
 $('hw-back').onclick = () => invoke('nav_action', { action: 'home' });
 $('hw-go').onclick = () => { const a = activeTab(); if (a) invoke('allow_http', { id: a.id }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); };
 // Botones de la ventana. En Windows ya los pone el sistema en la barra de título.
@@ -682,7 +691,10 @@ listen('intruder', (ev) => showAlert('intruder', t('intruder', { m: logText(ev.p
 listen('notice', (ev) => {
   const p = ev.payload;
   const msg = typeof p === 'string' ? p : (has('notice_' + p.code) ? t('notice_' + p.code) : p.message);
-  showAlert('notice', msg, [[t('ok'), '', null]]);
+  // Certificado o AutoFirma en modo Sombra: se ofrece abrir la misma web en una pestaña normal.
+  const btns = [[t('ok'), '', null]];
+  if (p && /^https?:/.test(p.url || '')) btns.unshift([t('openNormal'), 'primary', () => invoke('new_tab', { url: p.url, private: false })]);
+  showAlert('notice', msg, btns);
 });
 listen('ai-activity', () => refresh());
 

@@ -180,6 +180,8 @@ pub struct Shared {
     pub http_ok: Mutex<HashSet<String>>,
     /// Webs que ya sabemos que tienen https (solo mientras Sombra está abierto).
     pub https_known: Mutex<HashSet<String>>,
+    /// AutoFirma: hasta cuándo y por qué puertos puede la web hablar con ella (ver start_afirma).
+    afirma: Mutex<Option<(std::time::Instant, Vec<u16>)>>,
 }
 
 pub fn now() -> u64 {
@@ -214,7 +216,38 @@ impl Shared {
             data_dir,
             http_ok: Mutex::new(HashSet::new()),
             https_known: Mutex::new(HashSet::new()),
+            afirma: Mutex::new(None),
         })
+    }
+
+    /// Una pestaña normal ha abierto AutoFirma: durante 10 minutos la web puede hablar con
+    /// ella en este mismo PC (127.0.0.1), solo por los puertos que van en el propio enlace
+    /// (afirma://websocket?ports=50123,51234,... o afirma://service?ports=...). Fuera de eso,
+    /// ninguna web llega a este PC. Sin puertos en el enlace (modo por servidor), nada se abre.
+    pub fn start_afirma(&self, uri: &str) {
+        let new: Vec<u16> = url::Url::parse(uri)
+            .ok()
+            .and_then(|u| u.query_pairs().find(|(k, _)| k == "ports").map(|(_, v)| v.split(',').filter_map(|p| p.trim().parse().ok()).collect()))
+            .unwrap_or_default();
+        let mut new: Vec<u16> = new.into_iter().filter(|p| *p >= 1024).take(8).collect();
+        if new.is_empty() {
+            return;
+        }
+        let mut g = self.afirma.lock();
+        // Se conservan los puertos de un intento anterior aún vigente (AutoFirma reintenta con
+        // puertos nuevos), como mucho 12.
+        if let Some((_, old)) = g.as_ref().filter(|(t, _)| std::time::Instant::now() < *t) {
+            for p in old {
+                if !new.contains(p) && new.len() < 12 {
+                    new.push(*p);
+                }
+            }
+        }
+        *g = Some((std::time::Instant::now() + Duration::from_secs(600), new));
+    }
+
+    pub fn afirma_port(&self, port: u16) -> bool {
+        self.afirma.lock().as_ref().is_some_and(|(t, ps)| std::time::Instant::now() < *t && ps.contains(&port))
     }
 
     pub fn blocker(&self) -> Option<Arc<Blocker>> {

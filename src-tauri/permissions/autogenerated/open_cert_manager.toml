@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-cert-manager"
+description = "Enables the open_cert_manager command without any pre-configured scope."
+commands.allow = ["open_cert_manager"]
+
+[[permission]]
+identifier = "deny-open-cert-manager"
+description = "Denies the open_cert_manager command without any pre-configured scope."
+commands.deny = ["open_cert_manager"]

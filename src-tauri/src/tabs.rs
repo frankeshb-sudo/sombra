@@ -571,6 +571,98 @@ pub fn normalize_input(input: &str, search: &str) -> String {
     }
 }
 
+/// Aviso a la interfaz, como mucho uno cada 5 s (algunas webs lo intentan varias veces).
+/// `url`: la web, para ofrecer abrirla en una pestaña normal.
+fn notice_once(sh: &Shared, code: &str, url: String) {
+    static LAST: Mutex<Vec<(String, std::time::Instant)>> = Mutex::new(Vec::new());
+    {
+        let mut l = LAST.lock();
+        l.retain(|(_, t)| t.elapsed() < Duration::from_secs(5));
+        if l.iter().any(|(c, _)| c == code) {
+            return;
+        }
+        l.push((code.to_string(), std::time::Instant::now()));
+    }
+    sh.emit("notice", serde_json::json!({ "code": code, "message": code, "url": url }));
+}
+
+fn tab_url(sh: &Shared, id: u32) -> String {
+    sh.tabs.lock().list.iter().find(|t| t.id == id).map(|t| t.url.clone()).unwrap_or_default()
+}
+
+/// AutoFirma (firmar con el certificado digital en webs de la administración). Solo en
+/// pestañas normales: en modo Sombra diría quién eres. Devuelve si el motor sigue adelante.
+fn open_afirma(sh: &Shared, id: u32, private: bool, u: &url::Url) -> bool {
+    if private {
+        notice_once(sh, "afirmaSombra", tab_url(sh, id));
+        return false;
+    }
+    sh.start_afirma(u.as_str());
+    sh.sec("afirma", serde_json::json!({}), "AutoFirma: la web puede hablar con ella en este PC durante 10 minutos".into());
+    // Windows: el motor pregunta y abre AutoFirma. Linux: lo abre el sistema.
+    #[cfg(windows)]
+    {
+        let _ = u;
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(u.as_str()).spawn();
+        false
+    }
+}
+
+/// Windows (WebView2): certificado digital y apps externas.
+/// - Modo Sombra: nunca se envía el certificado ni se abre ninguna app (dirían quién eres).
+/// - Modo normal: el motor te deja elegir el certificado (ventana de Windows); de las apps
+///   externas solo AutoFirma, también desde los recuadros de la página.
+#[cfg(windows)]
+fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, private: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_18, ICoreWebView2_5};
+    use webview2_com::{ClientCertificateRequestedEventHandler, LaunchingExternalUriSchemeEventHandler};
+    use windows_core::{Interface, PWSTR};
+    unsafe {
+        let Ok(core) = pw.controller().CoreWebView2() else { return };
+        let mut token = 0i64;
+        if private {
+            if let Ok(w5) = core.cast::<ICoreWebView2_5>() {
+                let sh2 = sh.clone();
+                let _ = w5.add_ClientCertificateRequested(
+                    &ClientCertificateRequestedEventHandler::create(Box::new(move |_, args| {
+                        if let Some(a) = args {
+                            a.SetCancel(true)?;
+                            notice_once(&sh2, "certSombra", tab_url(&sh2, id));
+                        }
+                        Ok(())
+                    })),
+                    &mut token,
+                );
+            }
+        }
+        if let Ok(w18) = core.cast::<ICoreWebView2_18>() {
+            let _ = w18.add_LaunchingExternalUriScheme(
+                &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
+                    let Some(a) = args else { return Ok(()) };
+                    let mut p = PWSTR::null();
+                    a.Uri(&mut p)?;
+                    let uri = webview2_com::take_pwstr(p);
+                    let afirma = uri.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("afirma:"));
+                    if afirma && !private {
+                        sh.start_afirma(&uri);
+                    } else {
+                        a.SetCancel(true)?;
+                        if afirma {
+                            notice_once(&sh, "afirmaSombra", tab_url(&sh, id));
+                        }
+                    }
+                    Ok(())
+                })),
+                &mut token,
+            );
+        }
+    }
+}
+
 fn allowed_scheme(u: &url::Url) -> bool {
     matches!(u.scheme(), "http" | "https" | "about" | "blob" | "data")
 }
@@ -712,6 +804,8 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
     let window = app.get_window("main").ok_or_else(|| anyhow::anyhow!("sin ventana"))?;
 
     let sh_nav = sh.clone();
+    #[cfg(windows)]
+    let sh_win = sh.clone();
     let sh_load = sh.clone();
     let sh_title = sh.clone();
     let sh_new = sh.clone();
@@ -736,14 +830,13 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
         .initialization_script_for_all_frames(privacy_script(&eng.fp_key, eng.fp_seed, strict, yt, private))
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_navigation(move |u| {
-            if !allowed_scheme(u) {
-                return false;
+            if u.scheme() == "afirma" {
+                return open_afirma(&sh_nav, id, private, u);
             }
             // La dirección de la pestaña NO se cambia aquí: este aviso llega también de los
             // recuadros de dentro de la página (anuncios, CAPTCHAs...), y la barra mostraba
             // su dirección. La dirección real llega en on_page_load, que es solo de la página.
-            let _ = &sh_nav;
-            true
+            allowed_scheme(u)
         })
         .on_page_load(move |wv, payload| {
             let url = payload.url().to_string();
@@ -828,6 +921,8 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
     let (x, y, w, h) = sh.tabs.lock().rect;
     let view = window.add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w.max(1.0), h.max(1.0)))?;
     view_js().lock().insert(id, js);
+    #[cfg(windows)]
+    let _ = view.with_webview(move |pw| windows_hooks(pw, sh_win, id, private));
     // Linux (WebKit): sin WebGL ni reproducción automática en los niveles altos. En Windows
     // lo hacen los argumentos del motor (browser_args).
     #[cfg(target_os = "linux")]
