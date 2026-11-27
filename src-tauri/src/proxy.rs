@@ -1,6 +1,7 @@
 // Sombra - proxy SOCKS5 local. Todo el tráfico de las pestañas pasa por aquí:
 //  1) se bloquean dominios de publicidad y rastreo,
-//  2) lo demás sale SOLO por Tor (si Tor falla, no hay conexión: "kill switch").
+//  2) modo Sombra: lo demás sale SOLO por Tor (si Tor falla, no hay conexión: "kill switch");
+//     modo normal: sale directo (otro puerto, otro perfil del motor; nunca se mezclan).
 // Copyright (C) 2026 Sombra contributors. Licencia GPL-3.0-or-later.
 
 use crate::blocker::BlockKind;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
+pub async fn serve(listener: TcpListener, shared: Arc<Shared>, private: bool) {
     loop {
         let Ok((sock, peer)) = listener.accept().await else { continue };
         // Solo el propio Sombra (127.0.0.1) puede usar el proxy.
@@ -20,7 +21,7 @@ pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
         }
         let sh = shared.clone();
         tokio::spawn(async move {
-            let _ = handle(sock, sh).await;
+            let _ = handle(sock, sh, private).await;
         });
     }
 }
@@ -34,7 +35,7 @@ async fn reply(s: &mut TcpStream, code: u8) -> std::io::Result<()> {
     s.write_all(&[5, code, 0, 1, 0, 0, 0, 0, 0, 0]).await
 }
 
-async fn handle(mut s: TcpStream, sh: Arc<Shared>) -> anyhow::Result<()> {
+async fn handle(mut s: TcpStream, sh: Arc<Shared>, private: bool) -> anyhow::Result<()> {
     s.set_nodelay(true).ok();
     // Saludo: versión 5, sin autenticación.
     let mut h = [0u8; 2];
@@ -79,8 +80,13 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>) -> anyhow::Result<()> {
     s.read_exact(&mut p).await?;
     let port = u16::from_be_bytes(p);
 
-    // Nunca dejar que una web alcance tu red local o este mismo PC.
-    if is_local(&host) {
+    // Nunca dejar que una web alcance tu red local o este mismo PC. En modo normal sí se
+    // puede abrir a propósito una dirección local (el router, una impresora...): solo la web
+    // que tú has abierto, no lo que una web de internet pida por su cuenta.
+    // Solo si la dirección es local en sí (192.168.1.1, router.lan...): un dominio de internet
+    // abierto por ti nunca puede apuntar a tu red local (DNS rebinding).
+    let local_ok = !private && is_local(&host) && sh.is_top_level_host(&host);
+    if is_local(&host) && !local_ok {
         sh.stats.leaks_blocked.fetch_add(1, Ordering::Relaxed);
         sh.sec("localBlocked", serde_json::json!({ "host": format!("{host}:{port}") }), format!("Bloqueado acceso a red local: {host}:{port}"));
         reply(&mut s, REP_NOT_ALLOWED).await?;
@@ -104,10 +110,14 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>) -> anyhow::Result<()> {
 
     // Modo solo HTTPS: nada sale sin cifrar (puerto 80) salvo las webs que el usuario ha
     // aceptado abrir así. Los .onion ya van cifrados de punta a punta dentro de Tor.
-    if port == 80 && !host.ends_with(".onion") && sh.settings.lock().https_only && !sh.http_allowed(&host) {
+    if port == 80 && !host.ends_with(".onion") && !is_local(&host) && sh.settings.lock().https_only && !sh.http_allowed(&host) {
         sh.stats.page_blocked.fetch_add(1, Ordering::Relaxed);
         reply(&mut s, REP_NOT_ALLOWED).await?;
         return Ok(());
+    }
+
+    if !private {
+        return direct(s, &sh, &host, port, local_ok).await;
     }
 
     // Salida únicamente por Tor.
@@ -156,4 +166,40 @@ pub fn is_local(host: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Modo normal: conexión directa. Los .onion solo existen dentro de Tor. Se comprueba también
+/// la dirección a la que apunta el nombre: una web no puede llegar a tu red local con un
+/// dominio que apunte a 192.168.x.x (salvo la dirección local que tú has abierto).
+async fn direct(mut s: TcpStream, sh: &Shared, host: &str, port: u16, local_ok: bool) -> anyhow::Result<()> {
+    if host.ends_with(".onion") {
+        reply(&mut s, REP_NOT_ALLOWED).await?;
+        return Ok(());
+    }
+    let Some(mut out) = connect_direct(host, port, local_ok).await else {
+        reply(&mut s, REP_FAIL).await?;
+        return Ok(());
+    };
+    out.set_nodelay(true).ok();
+    reply(&mut s, REP_OK).await?;
+    sh.stats.connections.fetch_add(1, Ordering::Relaxed);
+    let _ = tokio::io::copy_bidirectional(&mut s, &mut out).await;
+    Ok(())
+}
+
+/// Conexión directa a una web: primero IPv4 (muchas redes no tienen IPv6 y esa ruta se queda
+/// colgada) y cada dirección con su tiempo máximo. Nunca a la red local salvo `local_ok`.
+pub async fn connect_direct(host: &str, port: u16, local_ok: bool) -> Option<TcpStream> {
+    use std::time::Duration;
+    let mut addrs: Vec<std::net::SocketAddr> = match tokio::time::timeout(Duration::from_secs(10), tokio::net::lookup_host((host, port))).await {
+        Ok(Ok(a)) => a.filter(|a| local_ok || !is_local(&a.ip().to_string())).collect(),
+        _ => return None,
+    };
+    addrs.sort_by_key(|a| a.is_ipv6());
+    for a in addrs.iter().take(4) {
+        if let Ok(Ok(st)) = tokio::time::timeout(Duration::from_secs(6), TcpStream::connect(a)).await {
+            return Some(st);
+        }
+    }
+    None
 }

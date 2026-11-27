@@ -8,13 +8,14 @@ Navegador **ligero y privado**: sin publicidad, con **Tor integrado**, elección
 
 | Función | Cómo |
 |---|---|
-| IP oculta siempre | Todo el tráfico sale por Tor (Arti, integrado). Si Tor no funciona, **no hay conexión** (nunca usa la directa). |
+| Dos modos | **Modo normal** (botón +, `Ctrl+T`): conexión directa y rápida para el día a día; sesiones, cookies e historial se guardan (perfil propio del motor), con bloqueo de anuncios y rastreadores y solo HTTPS. **Modo Sombra** (botón de la máscara, `Ctrl+Mayús+N`): todo por Tor, anti-huella, niveles de seguridad y nada se guarda. La pestaña y la barra se tiñen de morado en modo Sombra. Los dos modos nunca comparten cookies, caché ni sesiones. Un .onion abierto desde el modo normal se abre en una pestaña Sombra. En Ajustes se puede elegir que Sombra arranque en modo Sombra. |
+| IP oculta (modo Sombra) | Todo el tráfico de las pestañas Sombra sale por Tor (Arti, integrado). Si Tor no funciona, **no hay conexión** (nunca usa la directa). |
 | País de salida | Selector en la barra: Alemania, Francia, EE. UU., etc. |
 | Sin publicidad | EasyList, EasyPrivacy, EasyList España y lista de avisos de cookies (motor adblock-rust). Bloqueo por red y ocultación de huecos. En YouTube se quita la lista de anuncios de los datos del vídeo (y si aun así sale uno, se salta). |
 | Niveles de seguridad | Como Tor Browser: *Normal*, *Más seguro* (sin JavaScript en webs http, JavaScript sin JIT ni WebAssembly, sin WebGL ni vídeos que se reproducen solos) y *El más seguro* (sin JavaScript en ninguna web). En el panel (☰) se puede permitir JavaScript en una web concreta. |
 | Solo HTTPS | Como Tor Browser: las webs se abren siempre cifradas (https), también al pulsar un enlace. Antes de abrir una web http, Sombra comprueba por Tor que su https funciona de verdad (certificado válido); si no, muestra un aviso con *Volver* o *Continuar sin cifrar* (solo para esa web y hasta cerrar Sombra). Nada sale sin cifrar por el puerto 80 salvo lo que tú aceptes. Se puede quitar en Ajustes. |
 | Sin fugas | WebRTC desactivado, sin QUIC/UDP, DNS por Tor, red local inaccesible desde las webs. |
-| Nada se guarda | Historial, cookies y caché solo en memoria; se borran al cerrar. |
+| Nada se guarda (modo Sombra) | Historial, cookies y caché solo en memoria; se borran al cerrar. |
 | Anti-huella digital | Detecta y engaña intentos de identificar tu equipo (canvas, WebGL, audio, fuentes). |
 | Control para IAs | API local con token, aviso de cada IA nueva, permiso antes de enviar formularios, botón "Cortar IA" y registro de intrusos. |
 | Favoritos | Barra de favoritos y accesos rápidos en la pestaña nueva (clic derecho para quitar). |
@@ -69,6 +70,7 @@ Instalador (opcional): `cargo install tauri-cli --version "^2"` y luego `cargo t
 - Huella reforzada (Ajustes, activada por defecto): idioma inglés, hora UTC, tamaño de página redondeado, sin listas de voces ni dispositivos, ruido en canvas/WebGL/audio distinto en cada web y sesión, y en Linux las webs ven Safari en Mac. Limitaciones: el tamaño real del monitor se puede leer con reglas CSS, los tipos de letra delatan el sistema, los Workers ven los núcleos reales y, en Windows, también la zona horaria real. Detalles y comparación con otros navegadores en `AUDITORIA.md`.
 - Anuncios de YouTube: funcionan quitando los anuncios de los datos del vídeo; si YouTube cambia su forma de mandarlos, puede dejar de funcionar hasta actualizar Sombra.
 - Niveles de seguridad: cuando una web necesita JavaScript al revés que la anterior, la pestaña se abre de nuevo (se pierde el botón Atrás de esa pestaña). Permitir JavaScript en una web también lo permite en los recuadros que esa web incluya.
+- Modo normal en Linux: la hora que ven las webs es UTC si la huella reforzada está activada (el motor solo admite una zona para todo el programa), y WebRTC depende de que WebKitGTK lo traiga compilado. En Windows no pasa.
 - Linux: la ventana lleva su propia barra (− □ ×) en lugar de la del sistema.
 - Las pestañas no tienen ninguna conexión con Sombra ni rastros de Tauri (Tauri va parcheado, ver `src-tauri/vendor/PARCHE.md`). Aun así, una web siempre puede notar que el motor es una vista web de sistema y no un navegador conocido.
 - Contraseñas: si olvidas la contraseña maestra **y** pierdes las 12 palabras, no hay forma de recuperarlas (así nadie más puede).

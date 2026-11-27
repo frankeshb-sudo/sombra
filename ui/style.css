@@ -58,6 +58,21 @@ button { cursor: pointer; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 #toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--bar2); }
+/* Modo Sombra: color propio (morado oscuro) en la pestaña y en la barra, siempre igual,
+   para que nunca se confunda con el modo normal. */
+:root { --sombra: #7c3aed; --sombra-bg: #2a1747; --sombra-text: #f1eaff; }
+.tab.private { color: #c9b5f5; }
+.tab.private.active, .tab.private:hover { background: var(--sombra-bg); color: var(--sombra-text); }
+.tab .pv { display: flex; flex: none; }
+.tab .pv svg { width: 15px; height: 15px; stroke: #b794f6; }
+body.sombra #toolbar { background: var(--sombra-bg); color: var(--sombra-text); box-shadow: inset 0 -2px 0 var(--sombra); }
+body.sombra #toolbar .icon { color: var(--sombra-text); }
+body.sombra #newtab .moon { fill: var(--sombra); }
+#btn-newtab-private svg { stroke: #b794f6; }
+.mode-line { margin: 2px 0 6px; color: var(--muted); }
+#mode-name { font-weight: 600; color: var(--ok); }
+body.sombra #mode-name { color: #b794f6; }
+body:not(.sombra) #tor-line, body:not(.sombra) #tor-bar, body:not(.sombra) #country { display: none; }
 .icon { background: none; border: 0; border-radius: 7px; padding: 6px; display: flex; color: var(--accent2); }
 .icon:hover { background: var(--line); }
 .icon.small { padding: 4px; }

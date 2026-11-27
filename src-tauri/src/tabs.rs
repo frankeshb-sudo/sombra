@@ -14,6 +14,11 @@ pub struct Engine {
     pub args: String,
     pub proxy_port: u16,
     pub data_dir: PathBuf,
+    /// Modo normal: su propio perfil del motor (carpeta que se conserva: sesiones y cookies),
+    /// sus argumentos y su puerto del proxy (salida directa, sin Tor).
+    pub normal_args: String,
+    pub normal_port: u16,
+    pub normal_dir: PathBuf,
     /// Nombre aleatorio (por sesión) del contador anti-huella dentro de cada página.
     pub fp_key: String,
     /// Semilla aleatoria (por sesión) del ruido de canvas, WebGL y audio. Nunca se expone.
@@ -58,14 +63,43 @@ pub fn browser_args(proxy_port: u16, strict: bool, level: u8) -> String {
     a.join(" ")
 }
 
+/// Argumentos del motor en modo normal: proxy de Sombra (bloqueador, solo HTTPS) con salida
+/// directa. Sin QUIC (iría por UDP, sin pasar por el bloqueador). WebRTC sí funciona
+/// (videollamadas), sin revelar las direcciones de la red local.
+pub fn browser_args_normal(proxy_port: u16) -> String {
+    let proxy = format!("--proxy-server=socks5://127.0.0.1:{proxy_port}");
+    [
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,NetworkPrediction,InterestFeedContentSuggestions,OptimizationHints,MediaRouter,AutofillServerCommunication,msImplicitSignin,msDiagnosticDataForwarding",
+        &proxy,
+        "--proxy-bypass-list=<-loopback>",
+        "--force-webrtc-ip-handling-policy=default_public_interface_only",
+        "--webrtc-ip-handling-policy=default_public_interface_only",
+        "--disable-quic",
+        "--no-pings",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-domain-reliability",
+        "--disable-sync",
+        "--disable-breakpad",
+        "--no-first-run",
+    ]
+    .join(" ")
+}
+
+/// ¿Es de modo Sombra esta pestaña?
+pub fn tab_private(sh: &Shared, id: u32) -> bool {
+    sh.tabs.lock().list.iter().find(|t| t.id == id).map(|t| t.private).unwrap_or(true)
+}
+
 /* ---------- niveles de seguridad: JavaScript por web ---------- */
 
 /// ¿Puede esta dirección usar JavaScript? Normal: siempre. Más seguro: solo en webs cifradas
 /// (https o .onion), como Tor Browser. El más seguro: nunca. En todos los niveles, salvo las
 /// webs que el usuario haya permitido (y sus subdominios).
-pub fn js_allowed(sh: &Shared, u: &url::Url) -> bool {
+pub fn js_allowed(sh: &Shared, u: &url::Url, private: bool) -> bool {
     let s = sh.settings.lock();
-    if s.security_level == 0 {
+    // Los niveles de seguridad son del modo Sombra; en modo normal las webs funcionan enteras.
+    if s.security_level == 0 || !private {
         return true;
     }
     let host = u.host_str().unwrap_or("").to_ascii_lowercase();
@@ -91,13 +125,13 @@ pub fn needs_upgrade(sh: &Shared, u: &url::Url) -> bool {
 /// al puerto 443 por Tor (por el mismo circuito que usará la web) y saludo TLS con un
 /// certificado válido para esa web. Si falla (puerto cerrado, sin cifrado, certificado caducado
 /// o de otra web) o la dirección usa otro puerto, devuelve `None` y Sombra muestra el aviso.
-async fn https_version(sh: &Shared, u: &url::Url) -> Option<url::Url> {
+async fn https_version(sh: &Shared, u: &url::Url, private: bool) -> Option<url::Url> {
     if u.port().is_some() {
         return None;
     }
     let host = u.host_str()?.to_ascii_lowercase();
     if !sh.https_known.lock().contains(&host) {
-        if !tls_ok(sh, &host).await {
+        if !tls_ok(sh, &host, private).await {
             return None;
         }
         sh.https_known.lock().insert(host);
@@ -108,7 +142,7 @@ async fn https_version(sh: &Shared, u: &url::Url) -> Option<url::Url> {
 }
 
 /// ¿Responde la web por https con un certificado válido? (raíces de Mozilla, webpki-roots).
-async fn tls_ok(sh: &Shared, host: &str) -> bool {
+async fn tls_ok(sh: &Shared, host: &str, private: bool) -> bool {
     static CFG: OnceLock<Option<Arc<rustls::ClientConfig>>> = OnceLock::new();
     let cfg = CFG.get_or_init(|| {
         let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
@@ -120,11 +154,18 @@ async fn tls_ok(sh: &Shared, host: &str) -> bool {
     let (Some(cfg), Ok(name)) = (cfg.clone(), rustls::pki_types::ServerName::try_from(host.to_string())) else {
         return false;
     };
+    let tls = tokio_rustls::TlsConnector::from(cfg);
     let check = async {
-        let (stream, _) = sh.tor.connect(host, 443).await.ok()?;
-        tokio_rustls::TlsConnector::from(cfg).connect(name, stream).await.ok()
+        if private {
+            let (stream, _) = sh.tor.connect(host, 443).await.ok()?;
+            tls.connect(name, stream).await.ok().map(|_| ())
+        } else {
+            // Modo normal: directo, sin llegar nunca a la red local.
+            let stream = crate::proxy::connect_direct(host, 443, false).await?;
+            tls.connect(name, stream).await.ok().map(|_| ())
+        }
     };
-    matches!(tokio::time::timeout(Duration::from_secs(25), check).await, Ok(Some(_)))
+    matches!(tokio::time::timeout(Duration::from_secs(if private { 25 } else { 15 }), check).await, Ok(Some(_)))
 }
 
 /// Evita pasar a https dos veces la misma carga (llega el aviso de inicio y el de fin).
@@ -171,16 +212,21 @@ pub fn tab_js(id: u32) -> Option<bool> {
 
 /// Configuración común del motor para la interfaz y todas las pestañas.
 /// Windows (WebView2): argumentos de Chromium con el proxy. Linux/Android (WebKit): proxy nativo.
-pub fn engine_setup(b: WebviewBuilder<tauri::Wry>) -> WebviewBuilder<tauri::Wry> {
+/// `private`: modo Sombra (perfil temporal, salida por Tor). Si no, modo normal (perfil propio
+/// que se conserva, salida directa). Cada modo usa su carpeta: no comparten cookies ni caché.
+pub fn engine_setup(b: WebviewBuilder<tauri::Wry>, private: bool) -> WebviewBuilder<tauri::Wry> {
     let eng = ENGINE.get().expect("motor no iniciado");
-    let b = b.incognito(true).data_directory(eng.data_dir.clone());
+    let (dir, args, port) = if private { (&eng.data_dir, &eng.args, eng.proxy_port) } else { (&eng.normal_dir, &eng.normal_args, eng.normal_port) };
+    let b = b.incognito(private).data_directory(dir.clone());
     #[cfg(windows)]
     {
-        b.additional_browser_args(&eng.args)
+        let _ = port;
+        b.additional_browser_args(args)
     }
     #[cfg(not(windows))]
     {
-        let u = url::Url::parse(&format!("socks5://127.0.0.1:{}", eng.proxy_port)).expect("url proxy");
+        let _ = args;
+        let u = url::Url::parse(&format!("socks5://127.0.0.1:{port}")).expect("url proxy");
         b.proxy_url(u)
     }
 }
@@ -190,7 +236,7 @@ pub fn label(id: u32) -> String {
 }
 
 /// Script que se ejecuta en cada página (y en cada iframe) antes que el código de la web.
-fn privacy_script(fp_key: &str, seed: u32, strict: bool, yt: bool) -> String {
+fn privacy_script(fp_key: &str, seed: u32, strict: bool, yt: bool, private: bool) -> String {
     // Linux con huella reforzada: las webs ven Safari en Mac (ver SAFARI_UA).
     let platform = if cfg!(target_os = "linux") && strict { "MacIntel" } else { "" };
     r#"(() => {
@@ -285,8 +331,9 @@ fn privacy_script(fp_key: &str, seed: u32, strict: bool, yt: bool) -> String {
       }, true);
       addEventListener('keydown', e => { if (e.key === 'Enter' && e.target && e.target.type === 'password') grab(e.target); }, true);
     }
-    // WebRTC fuera: es la fuga de IP más típica.
-    ['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','RTCSessionDescription','RTCIceCandidate','RTCRtpReceiver','RTCRtpSender'].forEach(k => hide(window, k));
+    // WebRTC fuera en modo Sombra: es la fuga de IP más típica. En modo normal se deja
+    // (videollamadas); el motor no revela las direcciones de la red local.
+    if (__PRIVATE__) ['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','RTCSessionDescription','RTCIceCandidate','RTCRtpReceiver','RTCRtpSender'].forEach(k => hide(window, k));
     // Huella de canvas, WebGL y audio: ruido mínimo que cambia en cada web y en cada sesión
     // (como Brave). Dentro de una misma web y sesión el resultado es siempre el mismo, pero dos
     // webs, o la misma web otro día, ven huellas distintas: no se te puede seguir con ellas.
@@ -500,6 +547,7 @@ fn privacy_script(fp_key: &str, seed: u32, strict: bool, yt: bool) -> String {
         .replace("__PLATFORM__", platform)
         .replace("__STRICT__", if strict { "true" } else { "false" })
         .replace("__YT__", if yt { "true" } else { "false" })
+        .replace("__PRIVATE__", if private { "true" } else { "false" })
 }
 
 /// Convierte lo escrito en la barra en una URL (o búsqueda).
@@ -552,13 +600,19 @@ fn update_tab(sh: &Shared, id: u32, f: impl FnOnce(&mut TabInfo)) {
     }
 }
 
-/// Crea una pestaña (vacía o con una URL) y la activa.
+/// Crea una pestaña (vacía o con una URL) en el modo por defecto y la activa.
 pub async fn new_tab(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>) -> anyhow::Result<u32> {
+    let private = sh.settings.lock().default_private;
+    new_tab_mode(app, sh, url, private).await
+}
+
+/// Crea una pestaña en modo Sombra (`private`) o normal, y la activa.
+pub async fn new_tab_mode(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>, private: bool) -> anyhow::Result<u32> {
     let id = {
         let mut t = sh.tabs.lock();
         let id = t.next;
         t.next += 1;
-        t.list.push(TabInfo { id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false });
+        t.list.push(TabInfo { id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false, private });
         t.active = Some(id);
         id
     };
@@ -577,11 +631,19 @@ pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> 
     if !sh.tabs.lock().list.iter().any(|t| t.id == id) {
         return Ok(());
     }
-    let search = sh.settings.lock().search.clone();
+    let private = tab_private(sh, id);
+    let search = sh.settings.lock().search_for(private);
     let target = normalize_input(raw, &search);
     let mut parsed = url::Url::parse(&target).map_err(|e| anyhow::anyhow!("Dirección no válida: {e}"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         anyhow::bail!("Solo se permiten direcciones http y https");
+    }
+    // Los .onion solo existen dentro de Tor: desde una pestaña normal se abren en una pestaña
+    // Sombra (nueva, para no mezclar nada de los dos modos).
+    if !private && parsed.host_str().is_some_and(|h| h.trim_end_matches('.').ends_with(".onion")) {
+        let s = parsed.to_string();
+        Box::pin(new_tab_mode(app, sh, Some(s), true)).await?;
+        return Ok(());
     }
     // Modo solo HTTPS: se abre la versión cifrada; si no existe, se avisa en lugar de abrirla.
     // Una web escrita sin "https://" (ejemplo.com) pasa por la misma comprobación, para poder
@@ -598,7 +660,7 @@ pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> 
             t.loading = true;
             t.https_warn = false;
         });
-        match https_version(sh, &parsed).await {
+        match https_version(sh, &parsed, private).await {
             Some(u) => parsed = u,
             None => {
                 show_https_warn(app, sh, id, &parsed);
@@ -609,7 +671,7 @@ pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> 
     // Cada búsqueda sale por un circuito de Tor nuevo: el buscador no puede
     // relacionar una búsqueda con la anterior.
     let prefix = search.split("%s").next().unwrap_or(&search);
-    if prefix.len() > 8 && target.starts_with(prefix) {
+    if private && prefix.len() > 8 && target.starts_with(prefix) {
         if let Some(h) = parsed.host_str() {
             sh.tor.rotate_host(h);
         }
@@ -621,7 +683,7 @@ pub async fn navigate(app: &AppHandle, sh: &Arc<Shared>, id: u32, raw: &str) -> 
         return Ok(());
     }
     let mut id = id;
-    let js = js_allowed(sh, &parsed);
+    let js = js_allowed(sh, &parsed, private);
     let existing = app.get_webview(&label(id));
     if existing.is_some() && tab_js(id) != Some(js) {
         match go_home(app, sh, id) {
@@ -656,12 +718,14 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
     let app_new = app.clone();
     let app_load = app.clone();
 
-    let js = js_allowed(sh, &url);
+    let private = tab_private(sh, id);
+    let js = js_allowed(sh, &url, private);
+    // Huella reforzada y niveles de seguridad: solo en modo Sombra.
     let (strict, level, yt) = {
         let s = sh.settings.lock();
-        (s.fp_strict, s.security_level, s.blocking_enabled)
+        (s.fp_strict && private, if private { s.security_level } else { 0 }, s.blocking_enabled)
     };
-    let mut builder = engine_setup(WebviewBuilder::new(label(id), WebviewUrl::External(url)));
+    let mut builder = engine_setup(WebviewBuilder::new(label(id), WebviewUrl::External(url)), private);
     if !js {
         builder = builder.disable_javascript();
     }
@@ -669,7 +733,7 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
         builder = builder.user_agent(SAFARI_UA);
     }
     let builder = builder
-        .initialization_script_for_all_frames(privacy_script(&eng.fp_key, eng.fp_seed, strict, yt))
+        .initialization_script_for_all_frames(privacy_script(&eng.fp_key, eng.fp_seed, strict, yt, private))
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_navigation(move |u| {
             if !allowed_scheme(u) {
@@ -697,7 +761,7 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
             }
             // Nivel de seguridad: si la página (un enlace, una redirección) necesita JavaScript
             // al revés que esta vista, la pestaña se vuelve a abrir con una vista adecuada.
-            if matches!(payload.url().scheme(), "http" | "https") && tab_js(id).is_some_and(|j| j != js_allowed(&sh_load, payload.url())) {
+            if matches!(payload.url().scheme(), "http" | "https") && tab_js(id).is_some_and(|j| j != js_allowed(&sh_load, payload.url(), private)) {
                 let _ = wv.hide();
                 let (app2, sh2) = (app_load.clone(), sh_load.clone());
                 tauri::async_runtime::spawn(async move {
@@ -723,7 +787,10 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
                         t.url = url.clone();
                         title = t.title.clone();
                     });
-                    sh_load.add_history(&url, &title);
+                    // Modo Sombra: nada se guarda, tampoco en el historial.
+                    if !private {
+                        sh_load.add_history(&url, &title);
+                    }
                     let sh2 = sh_load.clone();
                     let app2 = app_load.clone();
                     let label = wv.label().to_string();
@@ -741,16 +808,18 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
                 url = t.url.clone();
                 t.title = if title.trim().is_empty() { t.url.clone() } else { title.clone() };
             });
-            sh_title.set_history_title(&url, &title);
+            if !private {
+                sh_title.set_history_title(&url, &title);
+            }
         })
         .on_new_window(move |u, _| {
-            // Las ventanas emergentes se abren como pestañas normales (o se descartan).
+            // Las ventanas emergentes se abren como pestañas (del mismo modo) o se descartan.
             if matches!(u.scheme(), "http" | "https") {
                 let app = app_new.clone();
                 let sh = sh_new.clone();
                 let s = u.to_string();
                 tauri::async_runtime::spawn(async move {
-                    let _ = new_tab(&app, &sh, Some(s)).await;
+                    let _ = new_tab_mode(&app, &sh, Some(s), private).await;
                 });
             }
             tauri::webview::NewWindowResponse::Deny
@@ -768,6 +837,16 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
             if let Some(s) = pw.inner().settings() {
                 s.set_enable_webgl(false);
                 s.set_media_playback_requires_user_gesture(true);
+            }
+        });
+    }
+    // Linux (WebKit): WebRTC viene apagado; en modo normal se enciende (videollamadas).
+    #[cfg(target_os = "linux")]
+    if !private {
+        let _ = view.with_webview(|pw| {
+            use webkit2gtk::{SettingsExt, WebViewExt};
+            if let Some(s) = pw.inner().settings() {
+                s.set_enable_webrtc(true);
             }
         });
     }
@@ -916,7 +995,7 @@ pub fn go_home(app: &AppHandle, sh: &Shared, id: u32) -> Option<u32> {
         let mut t = sh.tabs.lock();
         new_id = t.next;
         let tab = t.list.iter_mut().find(|x| x.id == id)?;
-        *tab = TabInfo { id: new_id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false };
+        *tab = TabInfo { id: new_id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false, private: tab.private };
         t.next += 1;
         if t.active == Some(id) {
             t.active = Some(new_id);

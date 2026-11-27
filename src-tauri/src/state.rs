@@ -31,6 +31,9 @@ pub struct TabInfo {
     pub has_view: bool,
     /// Modo solo HTTPS: la web no tiene versión cifrada y se muestra el aviso en lugar de abrirla.
     pub https_warn: bool,
+    /// Pestaña en modo Sombra (Tor, anti-huella, nada se guarda). Si no, modo normal: conexión
+    /// directa, sesiones y cookies guardadas, para el día a día. Nunca comparten datos.
+    pub private: bool,
 }
 
 #[derive(Default)]
@@ -85,16 +88,30 @@ pub struct Settings {
     /// Modo solo HTTPS (como Tor Browser): las webs http se abren por https; si no tienen
     /// versión cifrada, Sombra avisa antes de abrirlas sin cifrar.
     pub https_only: bool,
+    /// Las pestañas nuevas se abren en modo Sombra (si no, en modo normal).
+    pub default_private: bool,
 }
 
 /// DuckDuckGo por su dirección dentro de la red Tor: ni el buscador ni ningún
 /// nodo de salida ven quién busca.
+pub const DDG_CLEARNET: &str = "https://duckduckgo.com/?q=%s";
+
 pub const DDG_ONION: &str = "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/?q=%s";
 
 impl Settings {
     /// Parte fija de la URL del buscador (lo que va antes de `%s`).
     pub fn search_prefix(&self) -> &str {
         self.search.split("%s").next().unwrap_or(&self.search)
+    }
+
+    /// Buscador para cada modo. Un buscador .onion solo existe dentro de Tor: en modo normal
+    /// se usa su versión de internet (DuckDuckGo).
+    pub fn search_for(&self, private: bool) -> String {
+        if !private && self.search.contains(".onion") {
+            DDG_CLEARNET.into()
+        } else {
+            self.search.clone()
+        }
     }
 }
 
@@ -119,6 +136,7 @@ impl Default for Settings {
             security_level: 0,
             js_allow: Vec::new(),
             https_only: true,
+            default_private: false,
         }
     }
 }

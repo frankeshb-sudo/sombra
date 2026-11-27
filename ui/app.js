@@ -63,14 +63,30 @@ function applyAppearance(s) {
     fillStaticLists();
     if (pageOpen) openPage(pageOpen);
   }
-  $('search').placeholder = t('searchPh', { e: engineName(s.search) });
-  const n = privacyNote(s.search);
-  $('search-note').textContent = n.text;
-  $('search-note').className = 'priv ' + n.cls;
+  if (S.tabs) updateSearchUI();
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => S && applyAppearance(S.settings));
 
 /* ---------- pintado ---------- */
+const MASK_SVG = '<svg viewBox="0 0 24 24"><path d="M3 11h18M6 11l2.2-6h7.6L18 11"/><circle cx="7.5" cy="16" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/><path d="M10.1 16h3.8"/></svg>';
+// Buscador de la pestaña activa: un buscador .onion solo existe dentro de Tor; en modo normal
+// Sombra usa su versión de internet (igual que hace el motor al buscar).
+function activeSearch() {
+  const a = activeTab(), s = S.settings.search;
+  const normal = a ? !a.private : !S.settings.default_private;
+  return normal && s.includes('.onion') ? 'https://duckduckgo.com/?q=%s' : s;
+}
+function updateSearchUI() {
+  const se = activeSearch();
+  const a = activeTab();
+  const normal = a ? !a.private : !S.settings.default_private;
+  $('search').placeholder = t(normal ? 'searchPhNormal' : 'searchPh', { e: engineName(se) });
+  const n = privacyNote(se);
+  if (normal) n.text = t('engNormal');
+  $('search-note').textContent = n.text;
+  $('search-note').className = 'priv ' + n.cls;
+}
+
 let lastTabsKey = '';
 function renderTabs() {
   // Solo se redibuja si algo ha cambiado (evita parpadeos con webs que cambian sin parar).
@@ -80,10 +96,11 @@ function renderTabs() {
   const box = $('tabs');
   box.textContent = '';
   for (const tab of S.tabs) {
-    const b = el('button', 'tab' + (tab.id === S.active ? ' active' : ''));
+    const b = el('button', 'tab' + (tab.id === S.active ? ' active' : '') + (tab.private ? ' private' : ''));
     b.setAttribute('role', 'tab');
-    b.title = tab.url || t('newTabTitle');
+    b.title = (tab.private ? t('modeSombra') + ' · ' : '') + (tab.url || t('newTabTitle'));
     if (tab.loading) b.append(el('span', 'spin'));
+    else if (tab.private) { const m = el('span', 'pv'); m.innerHTML = MASK_SVG; b.append(m); }
     b.append(el('span', 't', tab.has_view || tab.https_warn ? (tab.title || hostOf(tab.url)) : t('newTabTitle')));
     const x = el('span', 'x');
     x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -94,6 +111,13 @@ function renderTabs() {
     box.append(b);
   }
   const a = activeTab();
+  // Modo de la pestaña activa: la barra se tiñe en modo Sombra para no confundirlos nunca.
+  const priv = !!(a && a.private);
+  document.body.classList.toggle('sombra', priv);
+  $('mode-name').textContent = t(priv ? 'modeSombra' : 'modeNormal');
+  $('mode-note').textContent = t(priv ? 'modeSombraNote' : 'modeNormalNote');
+  $('addr').placeholder = t(priv ? 'addrPhSombra' : 'addrPh');
+  updateSearchUI();
   const warn = !!(a && !a.has_view && a.https_warn);
   $('newtab').classList.toggle('hidden', !!(a && a.has_view) || warn);
   $('httpswarn').classList.toggle('hidden', !warn);
@@ -149,6 +173,12 @@ function renderStatus() {
   const c = S.control;
   $('t-ai').checked = c.enabled;
   $('btn-cut').classList.toggle('hidden', !c.enabled);
+  // Pestaña normal: no usa Tor; el escudo solo indica el bloqueador.
+  const an = activeTab();
+  if (an && !an.private) {
+    sh.className = 'pill ' + (S.settings.blocking_enabled ? 'ok' : 'warn');
+    $('shield-txt').textContent = t('modeNormal') + ' · ' + (S.settings.blocking_enabled ? t('shieldNormal') : t('blockingOff'));
+  }
   let info = c.enabled ? t('aiOn', { p: c.port, f: c.token_file }) : t('aiOff');
   const recent = c.client && (Date.now() / 1000 - c.client.time) < 30;
   if (c.enabled && c.client) info += '\n' + t('aiNow', { n: c.client.name, a: c.client.action });
@@ -285,6 +315,7 @@ function fillSettings() {
   $('s-histsearch').checked = s.history_searches;
   $('s-fpstrict').checked = s.fp_strict !== false;
   $('s-httpsonly').checked = s.https_only !== false;
+  $('s-defprivate').checked = !!s.default_private;
   const n = privacyNote(s.search);
   $('s-engine-priv').textContent = n.text;
   $('s-engine-priv').className = 'priv ' + n.cls;
@@ -522,7 +553,8 @@ $('btn-fill').onclick = async () => {
 };
 
 /* ---------- eventos ---------- */
-$('btn-newtab').onclick = () => { closePage(); invoke('new_tab', { url: null }); };
+$('btn-newtab').onclick = () => { closePage(); invoke('new_tab', { url: null, private: false }); };
+$('btn-newtab-private').onclick = () => { closePage(); invoke('new_tab', { url: null, private: true }); };
 $('btn-back').onclick = () => invoke('nav_action', { action: 'back' });
 $('btn-fwd').onclick = () => invoke('nav_action', { action: 'forward' });
 $('btn-reload').onclick = () => invoke('nav_action', { action: 'reload' });
@@ -545,7 +577,7 @@ $('btn-history').onclick = () => (pageOpen === 'history' ? closePage() : openPag
 $('page-close').onclick = closePage;
 $('country').onchange = (e) => invoke('set_country', { code: e.target.value || null }).then(refresh).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]]));
 $('btn-newid').onclick = () => invoke('new_identity').then(refreshLogs);
-$('btn-checkip').onclick = () => { closePage(); invoke('new_tab', { url: 'https://check.torproject.org/' }); };
+$('btn-checkip').onclick = () => { closePage(); invoke('new_tab', { url: 'https://check.torproject.org/', private: true }); };
 $('t-block').onchange = (e) => invoke('set_blocking', { enabled: e.target.checked }).then(refresh);
 $('t-ai').onchange = (e) => invoke('set_control', { enabled: e.target.checked }).then(refresh).then(refreshLogs);
 $('btn-cut').onclick = () => invoke('cut_ai').then(refresh).then(refreshLogs);
@@ -563,6 +595,7 @@ $('s-cleanexit').onchange = (e) => save({ clean_on_exit: e.target.checked });
 $('s-histsearch').onchange = (e) => save({ history_searches: e.target.checked });
 $('s-fpstrict').onchange = (e) => save({ fp_strict: e.target.checked });
 $('s-httpsonly').onchange = (e) => save({ https_only: e.target.checked });
+$('s-defprivate').onchange = (e) => save({ default_private: e.target.checked });
 $('hw-back').onclick = () => invoke('nav_action', { action: 'home' });
 $('hw-go').onclick = () => { const a = activeTab(); if (a) invoke('allow_http', { id: a.id }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); };
 // Botones de la ventana. En Windows ya los pone el sistema en la barra de título.
@@ -621,7 +654,8 @@ $('h-clear').onclick = () => invoke('clean', { opts: { history: true } }).then(l
 
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
-  if (e.ctrlKey && k === 't') { e.preventDefault(); $('btn-newtab').click(); }
+  if (e.ctrlKey && !e.shiftKey && k === 't') { e.preventDefault(); $('btn-newtab').click(); }
+  if (e.ctrlKey && e.shiftKey && k === 'n') { e.preventDefault(); $('btn-newtab-private').click(); }
   if (e.ctrlKey && k === 'w') { e.preventDefault(); if (S && S.active) invoke('close_tab', { id: S.active }); }
   if (e.ctrlKey && k === 'l') { e.preventDefault(); $('addr').focus(); }
   if (e.ctrlKey && k === 'h') { e.preventDefault(); openPage('history'); }

@@ -57,8 +57,11 @@ fn get_state(sh: Sh) -> Value {
 }
 
 #[tauri::command]
-async fn new_tab(app: AppHandle, sh: Sh<'_>, url: Option<String>) -> Result<u32, String> {
-    tabs::new_tab(&app, &sh, url).await.map_err(e2s)
+async fn new_tab(app: AppHandle, sh: Sh<'_>, url: Option<String>, private: Option<bool>) -> Result<u32, String> {
+    match private {
+        Some(p) => tabs::new_tab_mode(&app, &sh, url, p).await.map_err(e2s),
+        None => tabs::new_tab(&app, &sh, url).await.map_err(e2s),
+    }
 }
 
 #[tauri::command]
@@ -186,6 +189,9 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         if let Some(v) = patch.get("https_only").and_then(|v| v.as_bool()) {
             s.https_only = v;
         }
+        if let Some(v) = patch.get("default_private").and_then(|v| v.as_bool()) {
+            s.default_private = v;
+        }
         if let Some(v) = patch.get("security_level").and_then(|v| v.as_u64()) {
             s.security_level = v.min(2) as u8;
         }
@@ -218,7 +224,7 @@ fn refresh_js(app: &AppHandle, sh: &Arc<Shared>) {
     let Some(id) = tabs::active_id(sh) else { return };
     let Some(url) = sh.tabs.lock().list.iter().find(|t| t.id == id && t.has_view).map(|t| t.url.clone()) else { return };
     let Ok(u) = url::Url::parse(&url) else { return };
-    if tabs::tab_js(id) == Some(tabs::js_allowed(sh, &u)) {
+    if tabs::tab_js(id) == Some(tabs::js_allowed(sh, &u, tabs::tab_private(sh, id))) {
         return;
     }
     let (app, sh) = (app.clone(), sh.clone());
@@ -620,8 +626,10 @@ fn main() {
     let data_dir = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("Sombra");
     let _ = std::fs::create_dir_all(&data_dir);
     state::protect_dir(&data_dir);
-    // Nada de la navegación se conserva: la carpeta del motor se borra al abrir y al cerrar.
+    // Modo Sombra: nada de la navegación se conserva; su carpeta del motor se borra al abrir y
+    // al cerrar. Modo normal: su propia carpeta, que se conserva (sesiones, cookies).
     let web_dir = data_dir.join("webview");
+    let normal_dir = data_dir.join("webview-normal");
     let _ = std::fs::remove_dir_all(&web_dir);
     let _ = std::fs::remove_file(data_dir.join("control.json"));
 
@@ -704,7 +712,17 @@ fn main() {
             let sh_proxy = sh.clone();
             tauri::async_runtime::spawn(async move {
                 if let Ok(l) = tokio::net::TcpListener::from_std(std_listener) {
-                    proxy::serve(l, sh_proxy).await;
+                    proxy::serve(l, sh_proxy, true).await;
+                }
+            });
+            // Proxy del modo normal (salida directa), en otro puerto.
+            let normal_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            normal_listener.set_nonblocking(true)?;
+            let normal_port = normal_listener.local_addr()?.port();
+            let sh_proxy = sh.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(l) = tokio::net::TcpListener::from_std(normal_listener) {
+                    proxy::serve(l, sh_proxy, false).await;
                 }
             });
 
@@ -740,6 +758,90 @@ fn main() {
                 }
             });
 
+            #[cfg(debug_assertions)]
+            if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos")
+            {
+                sh.settings.lock().default_private = true;
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=modos): modo normal y modo Sombra.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("modos") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    let ev = |app: AppHandle, id: u32, js: &'static str| async move {
+                        match tokio::time::timeout(std::time::Duration::from_secs(10), tabs::eval_tab(&app, id, js.into())).await {
+                            Ok(Ok(v)) => v.to_string(),
+                            r => format!("{r:?}"),
+                        }
+                    };
+                    let abrir = |app: AppHandle, sh: Arc<Shared>, url: &'static str, private: bool| async move {
+                        let r = tabs::new_tab_mode(&app, &sh, Some(url.into()), private).await;
+                        log::warn!("SECTEST modos abrir {url} private={private}: {r:?}");
+                        let id = r.unwrap_or(0);
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        tabs::wait_loaded(&sh, id, 90).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        id
+                    };
+                    const TXT: &str = "(() => document.title + ' | ' + (document.body ? document.body.innerText : '').replace(/\\s+/g, ' ').slice(0, 160))()";
+                    const INFO: &str = "(() => JSON.stringify({ rtc: typeof RTCPeerConnection, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, lang: navigator.language, cookie: document.cookie, ls: (() => { try { return localStorage.getItem('modo'); } catch (e) { return 'err'; } })() }))()";
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    // 1) Modo normal: funciona sin esperar a Tor y sale directo.
+                    let t0 = std::time::Instant::now();
+                    let n = abrir(app2.clone(), sh2.clone(), "https://check.torproject.org/", false).await;
+                    log::warn!("SECTEST modos 1 normal (tor listo={}, {:.0} s): {}", sh2.tor.is_ready(), t0.elapsed().as_secs_f32(), ev(app2.clone(), n, TXT).await);
+                    while !sh2.tor.is_ready() {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    // 2) Modo Sombra: por Tor.
+                    let p = abrir(app2.clone(), sh2.clone(), "https://check.torproject.org/", true).await;
+                    log::warn!("SECTEST modos 2 sombra: {}", ev(app2.clone(), p, TXT).await);
+                    // 3) No comparten cookies ni almacenamiento.
+                    let _ = tabs::navigate(&app2, &sh2, n, "https://www.wikipedia.org/").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    tabs::wait_loaded(&sh2, n, 60).await;
+                    log::warn!("SECTEST modos 3 normal página: {} {:?}", ev(app2.clone(), n, "(() => location.href + ' ' + document.title)()").await, sh2.tabs.lock().list.iter().find(|t| t.id == n).map(|t| serde_json::to_string(t).unwrap_or_default()));
+                    let r = ev(app2.clone(), n, "(() => { document.cookie = 'modo=normal; max-age=3600; path=/'; localStorage.setItem('modo', 'normal'); return 'ok'; })()").await;
+                    log::warn!("SECTEST modos 3 normal guardar: {r}");
+                    let _ = tabs::navigate(&app2, &sh2, p, "https://www.wikipedia.org/").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    tabs::wait_loaded(&sh2, p, 60).await;
+                    log::warn!("SECTEST modos 3 normal: {}", ev(app2.clone(), n, INFO).await);
+                    log::warn!("SECTEST modos 3 normal detalle: {}", ev(app2.clone(), n, "(() => { let e = ''; try { localStorage.setItem('x', '1'); } catch (x) { e = String(x); } return JSON.stringify({ href: location.href, ce: navigator.cookieEnabled, e, c: (document.cookie = 'b=2; path=/', document.cookie) }); })()").await);
+                    log::warn!("SECTEST modos 3 sombra (sin cookie ni modo): {}", ev(app2.clone(), p, INFO).await);
+                    // 4) Búsqueda en modo normal: DuckDuckGo de internet (el .onion no existe fuera de Tor).
+                    let _ = tabs::navigate(&app2, &sh2, n, "sombra navegador").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    tabs::wait_loaded(&sh2, n, 60).await;
+                    let url_n = sh2.tabs.lock().list.iter().find(|t| t.id == n).map(|t| t.url.clone()).unwrap_or_default();
+                    log::warn!("SECTEST modos 4 búsqueda normal: {url_n}");
+                    // 5) Un .onion desde una pestaña normal se abre en una pestaña Sombra.
+                    let antes = sh2.tabs.lock().list.len();
+                    let _ = tabs::navigate(&app2, &sh2, n, "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/").await;
+                    let (despues, activa) = {
+                        let t = sh2.tabs.lock();
+                        (t.list.len(), t.list.iter().find(|x| Some(x.id) == t.active).map(|x| (x.private, x.url.clone())))
+                    };
+                    log::warn!("SECTEST modos 5 onion desde normal: pestañas {antes}->{despues}, activa={activa:?}");
+                    // 6) Historial: solo el modo normal.
+                    let h: Vec<String> = sh2.history.lock().iter().map(|e| e.url.clone()).collect();
+                    log::warn!("SECTEST modos 6 historial: {h:?}");
+                    // 7) Red local: desde una web normal no se llega (el proxy lo corta).
+                    let r = ev(app2.clone(), n, "(() => { window.__lan = 'esperando'; fetch('https://192.168.1.1/', { mode: 'no-cors' }).then(() => window.__lan = 'ALCANZADA', e => window.__lan = 'bloqueada: ' + e); return 'ok'; })()").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    log::warn!("SECTEST modos 7 red local desde web normal: {r} {}", ev(app2.clone(), n, "(() => String(window.__lan))()").await);
+                    // 8) DNS rebinding: un dominio de internet que apunta a 127.0.0.1 (localtest.me),
+                    // aunque lo abras tú, no llega a este PC.
+                    let _ = tabs::navigate(&app2, &sh2, n, "https://localtest.me/").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    tabs::wait_loaded(&sh2, n, 30).await;
+                    log::warn!("SECTEST modos 8 dominio que apunta a este PC: {}", ev(app2.clone(), n, TXT).await);
+                    log::warn!("SECTEST modos fin");
+                });
+            }
+
             // Solo en pruebas (SOMBRA_SELFTEST=1): entra en una web de práctica con datos falsos
             // y comprueba que llega el aviso "¿Guardar la contraseña?".
             #[cfg(debug_assertions)]
@@ -774,7 +876,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok() {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "modos") {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {
@@ -971,6 +1073,9 @@ fn main() {
                 args: tabs::browser_args(proxy_port, fp_strict, level),
                 proxy_port,
                 data_dir: web_dir.clone(),
+                normal_args: tabs::browser_args_normal(normal_port),
+                normal_port,
+                normal_dir: normal_dir.clone(),
                 fp_key,
                 fp_seed: rand::random(),
             });
@@ -983,7 +1088,7 @@ fn main() {
                 .decorations(cfg!(windows))
                 .build()?;
             let size = window.inner_size()?;
-            let ui = tabs::engine_setup(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())))
+            let ui = tabs::engine_setup(WebviewBuilder::new("ui", WebviewUrl::App("index.html".into())), true)
                 .auto_resize()
                 .initialization_script(format!("window.__SYS_LANGS = {}; window.__SYS_TZ = {};", json!(sys_langs), json!(sys_tz)));
             // Solo en pruebas: guarda los errores de la interfaz para poder diagnosticarlos.
