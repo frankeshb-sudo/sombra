@@ -1,13 +1,21 @@
 # Compila el instalador de Sombra para Windows en los servidores de GitHub.
 # - A mano: pestaña "Actions" → "Instalador de Windows" → "Run workflow".
-# - Automático: al publicar una etiqueta de versión (por ejemplo v0.1.0) se crea
+# - Automático: en cada cambio subido a main y, al publicar una etiqueta de versión (por ejemplo v0.1.0) se crea
 #   además una "Release" con el instalador para descargarlo desde tu web.
 name: Instalador de Windows
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]   # cada cambio subido a main: instalador nuevo (tools/actualizar-windows.ps1)
     tags: ["v*"]
+    # Si solo cambian textos o herramientas, la app es la misma: no se compila.
+    paths-ignore: ["**.md", "tools/**"]
+
+# Si se suben dos cambios seguidos, solo se compila el último.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write   # solo para adjuntar el instalador a la Release
