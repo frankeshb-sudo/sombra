@@ -150,4 +150,6 @@ I18N.nl = {
   openNormal: "Openen in normaal tabblad",
   log_afirma: "AutoFirma geopend: de website kan er 10 minuten mee praten op deze pc",
   certCancelNote: "Als je het certificaatvenster annuleert, vraagt die website er pas weer om nadat je Sombra hebt gesloten en opnieuw geopend.",
+  sugSearch: "Zoek „{q}” met {e}",
+  sugRemoveTip: "Shift+Delete: uit geschiedenis verwijderen",
 };

@@ -27,6 +27,7 @@
     "allow-page-privacy",
     "allow-set-settings",
     "allow-get-history",
+    "allow-suggest",
     "allow-remove-history",
     "allow-clean",
     "allow-vault-status",

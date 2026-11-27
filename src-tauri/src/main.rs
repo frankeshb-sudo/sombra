@@ -357,6 +357,14 @@ fn get_history(sh: Sh, query: Option<String>, limit: Option<usize>) -> Value {
     json!({ "items": items, "total": h.len() })
 }
 
+/// Sugerencias de la barra de direcciones (favoritos e historial de este equipo).
+#[tauri::command]
+fn suggest(sh: Sh, query: String) -> Vec<state::Suggestion> {
+    let h = sh.history.lock();
+    let b = sh.bookmarks.lock();
+    state::suggestions(&h, &b, &query, state::now(), 8)
+}
+
 #[tauri::command]
 fn remove_history(sh: Sh, url: String) {
     sh.history.lock().retain(|e| e.url != url);
@@ -773,6 +781,7 @@ fn main() {
             page_privacy,
             set_settings,
             get_history,
+            suggest,
             remove_history,
             clean,
             vault_status,

@@ -23,6 +23,7 @@ fn main() {
         "page_privacy",
         "set_settings",
         "get_history",
+        "suggest",
         "remove_history",
         "clean",
         "vault_status",

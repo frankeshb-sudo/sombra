@@ -150,4 +150,6 @@ I18N.zh = {
   openNormal: "在普通标签页中打开",
   log_afirma: "已打开 AutoFirma：网站可在 10 分钟内与本机上的它通信",
   certCancelNote: "如果取消证书窗口，在关闭并重新打开 Sombra 之前，该网站不会再次请求。",
+  sugSearch: "用 {e} 搜索“{q}”",
+  sugRemoveTip: "Shift+Delete：从历史记录中删除",
 };

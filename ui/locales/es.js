@@ -150,4 +150,6 @@ I18N.es = {
   openNormal: "Abrir en pestaña normal",
   log_afirma: "AutoFirma abierta: la web puede hablar con ella en este PC durante 10 minutos",
   certCancelNote: "Si cancelas la ventana del certificado, esa web no te lo vuelve a pedir hasta que cierres y abras Sombra.",
+  sugSearch: "Buscar «{q}» en {e}",
+  sugRemoveTip: "Mayús+Supr: quitar del historial",
 };

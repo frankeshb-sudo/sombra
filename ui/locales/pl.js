@@ -150,4 +150,6 @@ I18N.pl = {
   openNormal: "Otwórz w zwykłej karcie",
   log_afirma: "AutoFirma otwarta: strona może się z nią komunikować na tym komputerze przez 10 minut",
   certCancelNote: "Jeśli anulujesz okno certyfikatu, ta strona nie poprosi o niego ponownie, dopóki nie zamkniesz i nie otworzysz Sombry.",
+  sugSearch: "Szukaj „{q}” w {e}",
+  sugRemoveTip: "Shift+Delete: usuń z historii",
 };

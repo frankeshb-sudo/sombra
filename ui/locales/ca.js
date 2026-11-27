@@ -150,4 +150,6 @@ I18N.ca = {
   openNormal: "Obrir en una pestanya normal",
   log_afirma: "AutoFirma oberta: el web pot parlar-hi en aquest PC durant 10 minuts",
   certCancelNote: "Si cancel·les la finestra del certificat, aquest web no te'l tornarà a demanar fins que tanquis i obris Sombra.",
+  sugSearch: "Cerca «{q}» a {e}",
+  sugRemoveTip: "Maj+Supr: treu-ho de l'historial",
 };

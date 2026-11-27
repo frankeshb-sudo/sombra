@@ -25,6 +25,7 @@ const ACCENTS = { violet: '#7f77dd', blue: '#378add', green: '#1d9e75', pink: '#
 
 let S = null;           // último estado recibido de Rust
 let editingAddr = false;
+let sugOpen = false;    // sugerencias de la barra de direcciones a la vista
 let pageOpen = null;    // 'settings' | 'history' | null
 let lastLang = null;
 
@@ -42,7 +43,7 @@ function countryName(code) {
 function reportRect() {
   const r = $('content').getBoundingClientRect();
   const narrowPanel = !$('panel').classList.contains('hidden') && window.innerWidth <= 720;
-  const hide = narrowPanel || !!pageOpen;
+  const hide = narrowPanel || !!pageOpen || sugOpen;
   invoke('set_content_rect', { x: r.left, y: r.top, w: hide ? 0 : r.width, h: hide ? 0 : r.height }).catch(() => {});
 }
 new ResizeObserver(reportRect).observe($('content'));
@@ -374,21 +375,96 @@ async function loadHistory() {
   }
 }
 
-/* Sugerencias de la barra de direcciones: favoritos + historial */
-let sugTimer = null;
+/* Sugerencias de la barra de direcciones: favoritos e historial de este equipo.
+   Mientras escribes no se envía nada a ningún buscador. */
+const SUG_ICONS = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
+  go: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/>',
+  bookmark: '<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>',
+};
+let sugTimer = null, sugSeq = 0, sugItems = [], sugSel = 0, sugTyped = '';
+function looksLikeUrl(v) {
+  const l = v.toLowerCase();
+  return /^https?:\/\//.test(l) || (!/\s/.test(v) && (v.includes('.') || l.startsWith('localhost')) && !v.startsWith('.'));
+}
+function sugShow(on) {
+  if (sugOpen === on) return;
+  sugOpen = on;
+  $('sug').classList.toggle('hidden', !on);
+  $('addr').setAttribute('aria-expanded', on ? 'true' : 'false');
+  if (!on) $('addr').removeAttribute('aria-activedescendant');
+  reportRect();
+}
+function sugClose() { clearTimeout(sugTimer); sugSeq++; sugItems = []; sugShow(false); }
+function sugRow(kind, title, url, i) {
+  const row = el('div', 'sug-row ' + kind);
+  row.id = 'sug-' + i;
+  row.setAttribute('role', 'option');
+  row.innerHTML = '<svg viewBox="0 0 24 24">' + SUG_ICONS[kind] + '</svg>';
+  row.append(el('span', 'tt', title));
+  if (url) row.append(el('span', 'uu', url));
+  if (i === sugSel) { row.classList.add('sel'); row.setAttribute('aria-selected', 'true'); }
+  if (kind === 'history') row.title = t('sugRemoveTip');
+  // mousedown: que la barra no pierda el foco antes del clic.
+  row.onmousedown = (e) => e.preventDefault();
+  row.onclick = () => { sugSel = i; if (i > 0) $('addr').value = sugItems[i - 1].url; else $('addr').value = sugTyped; $('addr-form').requestSubmit(); };
+  return row;
+}
+function sugRender() {
+  const box = $('sug'), q = sugTyped.trim();
+  box.textContent = '';
+  if (!q) { sugShow(false); return; }
+  const url = looksLikeUrl(q);
+  box.append(sugRow(url ? 'go' : 'search', url ? q : t('sugSearch', { q, e: engineName(activeSearch()) }), '', 0));
+  sugItems.forEach((it, i) => box.append(sugRow(it.kind, it.title || hostOf(it.url), it.url.replace(/^https?:\/\/(www\.)?/, ''), i + 1)));
+  const f = $('addr-form').getBoundingClientRect(), c = $('content').getBoundingClientRect();
+  box.style.left = Math.max(4, f.left - c.left) + 'px';
+  box.style.width = Math.max(f.width, Math.min(480, c.width - 8)) + 'px';
+  $('addr').setAttribute('aria-activedescendant', 'sug-' + sugSel);
+  sugShow(true);
+}
+function sugMove(d) {
+  if (!sugOpen) return;
+  const n = sugItems.length + 1;
+  sugSel = (sugSel + d + n) % n;
+  $('addr').value = sugSel > 0 ? sugItems[sugSel - 1].url : sugTyped;
+  sugRender();
+}
 $('addr').addEventListener('input', () => {
+  sugTyped = $('addr').value;
+  sugSel = 0;
   clearTimeout(sugTimer);
+  const q = sugTyped.trim();
+  if (!q) { sugClose(); return; }
+  const seq = ++sugSeq;
   sugTimer = setTimeout(async () => {
-    const q = $('addr').value.trim();
-    const dl = $('suggest'); dl.textContent = '';
-    if (q.length < 2) return;
-    const seen = new Set();
-    for (const b of S.bookmarks) if ((b.url + b.title).toLowerCase().includes(q.toLowerCase())) seen.add(b.url);
-    const r = await invoke('get_history', { query: q, limit: 8 });
-    for (const it of r.items) seen.add(it.url);
-    [...seen].slice(0, 8).forEach(u => { const o = el('option'); o.value = u; dl.append(o); });
-  }, 150);
+    const items = await invoke('suggest', { query: q }).catch(() => []);
+    if (seq !== sugSeq || !editingAddr) return;
+    sugItems = items;
+    sugRender();
+  }, 60);
 });
+$('addr').addEventListener('keydown', (e) => {
+  if (!sugOpen) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sugMove(e.key === 'ArrowDown' ? 1 : -1); }
+  else if (e.key === 'Escape') {
+    // Primer Esc: se cierran las sugerencias y vuelve lo escrito. El segundo, el de siempre.
+    e.preventDefault(); e.stopImmediatePropagation();
+    $('addr').value = sugTyped; sugClose();
+  } else if (e.key === 'Delete' && e.shiftKey && sugSel > 0 && sugItems[sugSel - 1].kind === 'history') {
+    // Mayús+Supr: quita esa web del historial.
+    e.preventDefault(); e.stopImmediatePropagation();
+    const u = sugItems[sugSel - 1].url;
+    sugItems.splice(sugSel - 1, 1);
+    sugSel = Math.min(sugSel, sugItems.length);
+    $('addr').value = sugSel > 0 ? sugItems[sugSel - 1].url : sugTyped;
+    invoke('remove_history', { url: u }).catch(() => {});
+    sugRender();
+  }
+});
+$('addr').addEventListener('blur', sugClose);
+window.addEventListener('resize', () => { if (sugOpen) sugRender(); });
 
 /* ---------- contraseñas ---------- */
 let vaultPhraseShown = false;
@@ -575,7 +651,7 @@ $('addr').addEventListener('keydown', (e) => {
   $('addr').value = a && (a.has_view || a.https_warn) ? a.url : '';
   $('addr').blur();
 });
-$('addr-form').onsubmit = (e) => { e.preventDefault(); const v = $('addr').value; if (!v.trim()) return; $('addr').blur(); closePage(); invoke('navigate', { id: null, input: v }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); };
+$('addr-form').onsubmit = (e) => { e.preventDefault(); sugClose(); const v = $('addr').value; if (!v.trim()) return; $('addr').blur(); closePage(); invoke('navigate', { id: null, input: v }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); };
 $('search-form').onsubmit = (e) => { e.preventDefault(); const v = $('search').value; $('search').value = ''; invoke('navigate', { id: null, input: v }); };
 $('btn-star').onclick = async () => {
   const a = activeTab(); if (!a || !a.has_view) return;

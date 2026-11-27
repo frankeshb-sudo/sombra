@@ -150,4 +150,6 @@ I18N.en = {
   openNormal: "Open in normal tab",
   log_afirma: "AutoFirma opened: the website can talk to it on this PC for 10 minutes",
   certCancelNote: "If you cancel the certificate window, that site won't ask again until you close and reopen Sombra.",
+  sugSearch: "Search {e} for “{q}”",
+  sugRemoveTip: "Shift+Delete: remove from history",
 };

@@ -483,3 +483,121 @@ pub fn protect_dir(p: &std::path::Path) {
     #[cfg(not(unix))]
     let _ = p;
 }
+
+// ---------- Sugerencias de la barra de direcciones ----------
+
+#[derive(Serialize, Debug)]
+pub struct Suggestion {
+    pub url: String,
+    pub title: String,
+    /// "bookmark" | "history"
+    pub kind: &'static str,
+}
+
+/// La dirección sin "https://" ni "www.", para comparar con lo que se escribe.
+fn bare_url(url: &str) -> &str {
+    let u = url.split_once("://").map_or(url, |(_, r)| r);
+    u.strip_prefix("www.").unwrap_or(u)
+}
+
+/// Sugerencias para lo escrito en la barra: solo con lo que ya hay en este equipo (favoritos e
+/// historial), nunca se envía nada a ningún sitio mientras se escribe. Cada palabra tiene que
+/// aparecer en la dirección o en el título. Primero lo que empieza por lo escrito, los favoritos
+/// y lo más visitado y reciente.
+pub fn suggestions(history: &[HistoryEntry], bookmarks: &[Bookmark], query: &str, now: u64, limit: usize) -> Vec<Suggestion> {
+    let q = query.trim().to_lowercase();
+    let q = bare_url(&q).to_string();
+    let words: Vec<&str> = q.split_whitespace().collect();
+    if words.is_empty() || limit == 0 {
+        return Vec::new();
+    }
+    struct Agg<'a> {
+        title: &'a str,
+        visits: u32,
+        last: u64,
+        bookmark: bool,
+    }
+    let mut seen: HashMap<&str, Agg> = HashMap::new();
+    for e in history {
+        let a = seen.entry(e.url.as_str()).or_insert(Agg { title: "", visits: 0, last: 0, bookmark: false });
+        a.visits += 1;
+        if e.time >= a.last {
+            a.last = e.time;
+            if !e.title.is_empty() {
+                a.title = &e.title;
+            }
+        }
+    }
+    for b in bookmarks {
+        let a = seen.entry(b.url.as_str()).or_insert(Agg { title: "", visits: 0, last: 0, bookmark: false });
+        a.bookmark = true;
+        if !b.title.is_empty() {
+            a.title = &b.title;
+        }
+    }
+    let mut out: Vec<(f64, Suggestion)> = seen
+        .into_iter()
+        .filter_map(|(url, a)| {
+            let bare = bare_url(url).to_lowercase();
+            let title = a.title.to_lowercase();
+            if !words.iter().all(|w| bare.contains(w) || title.contains(w)) {
+                return None;
+            }
+            let mut score = (1.0 + a.visits as f64).ln() * 10.0;
+            if a.visits > 0 {
+                let days = now.saturating_sub(a.last) as f64 / 86400.0;
+                score += 20.0 / (1.0 + days);
+            }
+            if a.bookmark {
+                score += 30.0;
+            }
+            if bare.starts_with(&q) {
+                score += 50.0;
+            } else if title.starts_with(&q) || title.split_whitespace().any(|t| t.starts_with(words[0])) {
+                score += 10.0;
+            }
+            // Ante la duda, la página principal antes que una página interior.
+            score -= bare.len() as f64 / 100.0;
+            Some((score, Suggestion { url: url.to_string(), title: a.title.to_string(), kind: if a.bookmark { "bookmark" } else { "history" } }))
+        })
+        .collect();
+    out.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.url.cmp(&b.1.url)));
+    out.into_iter().take(limit).map(|(_, s)| s).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn h(url: &str, title: &str, time: u64) -> HistoryEntry {
+        HistoryEntry { url: url.into(), title: title.into(), time }
+    }
+
+    #[test]
+    fn sugerencias() {
+        let now = 100_000_000;
+        let hist = vec![
+            h("https://www.youtube.com/", "YouTube", now - 100),
+            h("https://www.youtube.com/", "YouTube", now - 50),
+            h("https://www.youtube.com/watch?v=1", "Un vídeo", now - 10),
+            h("https://es.wikipedia.org/wiki/Tor", "Tor - Wikipedia", now - 86400 * 30),
+            h("https://example.com/you", "Otra", now - 5),
+        ];
+        let bm = vec![Bookmark { url: "https://github.com/".into(), title: "GitHub".into(), folder: String::new() }];
+        let r = suggestions(&hist, &bm, "you", now, 8);
+        assert_eq!(r[0].url, "https://www.youtube.com/");
+        assert_eq!(r.len(), 3);
+        // "https://" y "www." escritos no impiden encontrarla.
+        assert_eq!(suggestions(&hist, &bm, "https://www.yout", now, 8)[0].url, "https://www.youtube.com/");
+        // Varias palabras: todas tienen que aparecer (en la dirección o en el título).
+        let r = suggestions(&hist, &bm, "tor wiki", now, 8);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].title, "Tor - Wikipedia");
+        // Favorito sin visitas.
+        let r = suggestions(&hist, &bm, "git", now, 8);
+        assert_eq!((r[0].url.as_str(), r[0].kind), ("https://github.com/", "bookmark"));
+        assert!(suggestions(&hist, &bm, "   ", now, 8).is_empty());
+        assert!(suggestions(&hist, &bm, "zzz", now, 8).is_empty());
+        assert_eq!(suggestions(&hist, &bm, "o", now, 2).len(), 2);
+    }
+}

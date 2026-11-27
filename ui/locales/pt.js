@@ -150,4 +150,6 @@ I18N.pt = {
   openNormal: "Abrir num separador normal",
   log_afirma: "AutoFirma aberto: o site pode comunicar com ele neste PC durante 10 minutos",
   certCancelNote: "Se cancelares a janela do certificado, esse site não o volta a pedir até fechares e abrires o Sombra.",
+  sugSearch: "Pesquisar «{q}» no {e}",
+  sugRemoveTip: "Shift+Delete: remover do histórico",
 };
