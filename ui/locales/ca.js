@@ -149,4 +149,5 @@ I18N.ca = {
   notice_afirmaSombra: "Aquest web vol obrir AutoFirma. En mode Sombra no s'obre, perquè diria qui ets. Obre'l en una pestanya normal.",
   openNormal: "Obrir en una pestanya normal",
   log_afirma: "AutoFirma oberta: el web pot parlar-hi en aquest PC durant 10 minuts",
+  certCancelNote: "Si cancel·les la finestra del certificat, aquest web no te'l tornarà a demanar fins que tanquis i obris Sombra.",
 };

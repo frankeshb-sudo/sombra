@@ -149,4 +149,5 @@ I18N.ja = {
   notice_afirmaSombra: "このサイトが AutoFirma を開こうとしています。Sombra モードでは身元がわかってしまうため開きません。通常タブで開いてください。",
   openNormal: "通常タブで開く",
   log_afirma: "AutoFirma を開きました：サイトは 10 分間この PC 上の AutoFirma と通信できます",
+  certCancelNote: "証明書の画面をキャンセルすると、Sombra を閉じて開き直すまで、そのサイトは再び求めません。",
 };

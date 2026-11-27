@@ -149,4 +149,5 @@ I18N.nl = {
   notice_afirmaSombra: "Deze website wil AutoFirma openen. In de Sombra-modus gebeurt dat niet, omdat het zou verraden wie je bent. Open hem in een normaal tabblad.",
   openNormal: "Openen in normaal tabblad",
   log_afirma: "AutoFirma geopend: de website kan er 10 minuten mee praten op deze pc",
+  certCancelNote: "Als je het certificaatvenster annuleert, vraagt die website er pas weer om nadat je Sombra hebt gesloten en opnieuw geopend.",
 };

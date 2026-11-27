@@ -149,4 +149,5 @@ I18N.zh = {
   notice_afirmaSombra: "此网站想打开 AutoFirma。在 Sombra 模式下不会打开，因为会暴露你的身份。请在普通标签页中打开。",
   openNormal: "在普通标签页中打开",
   log_afirma: "已打开 AutoFirma：网站可在 10 分钟内与本机上的它通信",
+  certCancelNote: "如果取消证书窗口，在关闭并重新打开 Sombra 之前，该网站不会再次请求。",
 };

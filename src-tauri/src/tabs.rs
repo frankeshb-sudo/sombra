@@ -618,12 +618,73 @@ fn open_afirma(sh: &Shared, id: u32, private: bool, u: &url::Url) -> bool {
 ///   externas solo AutoFirma, también desde los recuadros de la página.
 #[cfg(windows)]
 fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, private: bool) {
-    use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_18, ICoreWebView2_5};
-    use webview2_com::{ClientCertificateRequestedEventHandler, LaunchingExternalUriSchemeEventHandler};
-    use windows_core::{Interface, PWSTR};
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_18, ICoreWebView2_5, COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+        COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
+    };
+    use webview2_com::{
+        AcceleratorKeyPressedEventHandler, ClientCertificateRequestedEventHandler, ContainsFullScreenElementChangedEventHandler,
+        LaunchingExternalUriSchemeEventHandler,
+    };
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
+    use windows_core::{Interface, BOOL, PWSTR};
     unsafe {
-        let Ok(core) = pw.controller().CoreWebView2() else { return };
+        let controller = pw.controller();
+        let Ok(core) = controller.CoreWebView2() else { return };
         let mut token = 0i64;
+        // Atajos de Sombra con el foco dentro de la página.
+        {
+            let sh2 = sh.clone();
+            let _ = controller.add_AcceleratorKeyPressed(
+                &AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
+                    let Some(a) = args else { return Ok(()) };
+                    let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
+                    a.KeyEventKind(&mut kind)?;
+                    if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN {
+                        return Ok(());
+                    }
+                    let mut st = COREWEBVIEW2_PHYSICAL_KEY_STATUS::default();
+                    a.PhysicalKeyStatus(&mut st)?;
+                    // Mantener la tecla pulsada no repite el atajo (no abre veinte pestañas).
+                    if st.WasKeyDown.as_bool() {
+                        return Ok(());
+                    }
+                    let mut vk = 0u32;
+                    a.VirtualKey(&mut vk)?;
+                    let key = match vk {
+                        0x41..=0x5A => Key::Ch((vk as u8 + 32) as char),
+                        0x70..=0x7B => Key::F((vk - 0x6F) as u8),
+                        0x09 => Key::Tab,
+                        0x24 => Key::Home,
+                        0x2E => Key::Delete,
+                        _ => Key::Other,
+                    };
+                    let ctrl = GetKeyState(VK_CONTROL.0 as i32) < 0;
+                    let shift = GetKeyState(VK_SHIFT.0 as i32) < 0;
+                    if let Some(name) = shortcut(key, ctrl, shift, st.IsMenuKeyDown.as_bool()) {
+                        a.SetHandled(true)?;
+                        run_shortcut(&sh2, name);
+                    }
+                    Ok(())
+                })),
+                &mut token,
+            );
+        }
+        // Pantalla completa de verdad (vídeos).
+        if let Some(app) = sh.app.get().cloned() {
+            let sh2 = sh.clone();
+            let _ = core.add_ContainsFullScreenElementChanged(
+                &ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
+                    if let Some(s) = sender {
+                        let mut on = BOOL::default();
+                        s.ContainsFullScreenElement(&mut on)?;
+                        set_fullscreen(&app, &sh2, id, on.as_bool());
+                    }
+                    Ok(())
+                })),
+                &mut token,
+            );
+        }
         if private {
             if let Ok(w5) = core.cast::<ICoreWebView2_5>() {
                 let sh2 = sh.clone();
@@ -660,6 +721,82 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
                 &mut token,
             );
         }
+    }
+}
+
+/// Tecla pulsada dentro de una página (Windows y Linux la traducen a esto).
+#[derive(Clone, Copy, PartialEq)]
+pub enum Key {
+    Ch(char),
+    F(u8),
+    Tab,
+    Home,
+    Delete,
+    Other,
+}
+
+/// Atajos de Sombra que funcionan también con el foco dentro de la página (como en Chrome).
+/// La página no los recibe. Los nombres son los que entiende la interfaz (runShortcut).
+pub fn shortcut(k: Key, ctrl: bool, shift: bool, alt: bool) -> Option<&'static str> {
+    use Key::*;
+    Some(match (k, ctrl, shift, alt) {
+        (Ch('t'), true, false, false) => "newtab",
+        (Ch('n'), true, true, false) => "newtab-private",
+        (Ch('w'), true, false, false) | (F(4), true, false, false) => "close",
+        (Ch('l'), true, false, false) | (Ch('d'), false, false, true) | (F(6), false, false, false) => "addr",
+        (F(5), false, false, false) | (Ch('r'), true, false, false) => "reload",
+        (Ch('h'), true, false, false) => "history",
+        (Home, false, false, true) => "home",
+        (Tab, true, false, false) => "next-tab",
+        (Tab, true, true, false) => "prev-tab",
+        (Delete, true, true, false) => "clean",
+        _ => return None,
+    })
+}
+
+/// Lleva el atajo a la interfaz. Para escribir una dirección (también en una pestaña nueva),
+/// el foco pasa a la barra de Sombra.
+pub fn run_shortcut(sh: &Shared, name: &str) {
+    if matches!(name, "addr" | "newtab" | "newtab-private") {
+        if let Some(ui) = sh.app.get().and_then(|a| a.get_webview("ui")) {
+            let _ = ui.set_focus();
+        }
+    }
+    sh.emit("shortcut", name);
+}
+
+/// Pantalla completa de una página (un vídeo): la ventana pasa a pantalla completa y la
+/// pestaña la ocupa entera. Al salir, todo vuelve a su sitio.
+pub fn set_fullscreen(app: &AppHandle, sh: &Arc<Shared>, id: u32, on: bool) {
+    {
+        let mut t = sh.tabs.lock();
+        if on {
+            t.fullscreen = Some(id);
+        } else if t.fullscreen == Some(id) {
+            t.fullscreen = None;
+        } else {
+            return;
+        }
+    }
+    if let Some(w) = app.get_window("main") {
+        let _ = w.set_fullscreen(on);
+    }
+    layout(app, sh);
+    // La ventana tarda un momento en cambiar de tamaño.
+    let (app2, sh2) = (app.clone(), sh.clone());
+    tauri::async_runtime::spawn(async move {
+        for ms in [150, 450] {
+            tokio::time::sleep(Duration::from_millis(ms)).await;
+            layout(&app2, &sh2);
+        }
+    });
+}
+
+/// Sale de la pantalla completa si la tenía otra pestaña (al cambiar o cerrar pestañas).
+fn leave_fullscreen_unless(app: &AppHandle, sh: &Arc<Shared>, keep: Option<u32>) {
+    let fs = sh.tabs.lock().fullscreen;
+    if let Some(f) = fs.filter(|f| Some(*f) != keep) {
+        set_fullscreen(app, sh, f, false);
     }
 }
 
@@ -918,6 +1055,10 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
             tauri::webview::NewWindowResponse::Deny
         });
 
+    // Zoom con Ctrl +/- y Ctrl + rueda. Windows: lo hace el motor. Linux: Sombra (más abajo),
+    // porque Tauri lo haría metiendo un script en la página.
+    #[cfg(windows)]
+    let builder = builder.zoom_hotkeys_enabled(true);
     let (x, y, w, h) = sh.tabs.lock().rect;
     let view = window.add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w.max(1.0), h.max(1.0)))?;
     view_js().lock().insert(id, js);
@@ -945,9 +1086,94 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
             }
         });
     }
+    // Linux (WebKit): atajos con el foco en la página, zoom y pantalla completa.
+    #[cfg(target_os = "linux")]
+    {
+        let (sh_k, app_f) = (sh.clone(), app.clone());
+        let _ = view.with_webview(move |pw| linux_hooks(pw.inner(), sh_k, app_f, id));
+    }
     #[cfg(not(target_os = "linux"))]
     let _ = (&view, level);
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_hooks(wv: webkit2gtk::WebView, sh: Arc<Shared>, app: AppHandle, id: u32) {
+    use gtk::gdk::keys::constants as K;
+    use gtk::gdk::{ModifierType, ScrollDirection};
+    use gtk::glib::Propagation;
+    use gtk::prelude::*;
+    use webkit2gtk::WebViewExt;
+    fn zoom(w: &webkit2gtk::WebView, z: Option<f64>) {
+        let n = z.map_or(1.0, |d| (w.zoom_level() + d).clamp(0.3, 3.0));
+        w.set_zoom_level((n * 10.0).round() / 10.0);
+    }
+    let sh_k = sh.clone();
+    wv.connect_key_press_event(move |w, ev| {
+        let st = ev.state();
+        let (ctrl, shift, alt) = (st.contains(ModifierType::CONTROL_MASK), st.contains(ModifierType::SHIFT_MASK), st.contains(ModifierType::MOD1_MASK));
+        let kv = ev.keyval();
+        if ctrl && !alt {
+            if kv == K::plus || kv == K::equal || kv == K::KP_Add {
+                zoom(w, Some(0.1));
+                return Propagation::Stop;
+            }
+            if kv == K::minus || kv == K::KP_Subtract {
+                zoom(w, Some(-0.1));
+                return Propagation::Stop;
+            }
+            if kv == K::_0 || kv == K::KP_0 {
+                zoom(w, None);
+                return Propagation::Stop;
+            }
+        }
+        let key = if kv == K::Tab || kv == K::ISO_Left_Tab {
+            Key::Tab
+        } else if kv == K::Home {
+            Key::Home
+        } else if kv == K::Delete {
+            Key::Delete
+        } else if kv == K::F4 {
+            Key::F(4)
+        } else if kv == K::F5 {
+            Key::F(5)
+        } else if kv == K::F6 {
+            Key::F(6)
+        } else {
+            kv.to_lower().to_unicode().map_or(Key::Other, Key::Ch)
+        };
+        match shortcut(key, ctrl, shift, alt) {
+            Some(n) => {
+                run_shortcut(&sh_k, n);
+                Propagation::Stop
+            }
+            None => Propagation::Proceed,
+        }
+    });
+    wv.connect_scroll_event(|w, ev| {
+        if !ev.state().contains(ModifierType::CONTROL_MASK) {
+            return Propagation::Proceed;
+        }
+        let d = match ev.direction() {
+            ScrollDirection::Up => 0.1,
+            ScrollDirection::Down => -0.1,
+            ScrollDirection::Smooth => ev.delta().1.signum() * -0.1,
+            _ => 0.0,
+        };
+        if d != 0.0 {
+            zoom(w, Some(d));
+        }
+        Propagation::Stop
+    });
+    let (app2, sh2) = (app.clone(), sh.clone());
+    wv.connect_enter_fullscreen(move |_| {
+        set_fullscreen(&app2, &sh2, id, true);
+        false
+    });
+    wv.connect_leave_fullscreen(move |_| {
+        set_fullscreen(&app, &sh, id, false);
+        false
+    });
 }
 
 /// Oculta anuncios incrustados que no se pueden bloquear por red.
@@ -1009,11 +1235,19 @@ pub async fn eval_tab(app: &AppHandle, id: u32, js: String) -> anyhow::Result<se
 
 /// Coloca la pestaña activa en la zona de contenido y oculta las demás (pestañas dormidas).
 pub fn layout(app: &AppHandle, sh: &Shared) {
-    let (rect, active, ids) = {
+    let (rect, active, ids, fs) = {
         let t = sh.tabs.lock();
-        (t.rect, t.active, t.list.iter().map(|x| x.id).collect::<Vec<_>>())
+        (t.rect, t.active, t.list.iter().map(|x| x.id).collect::<Vec<_>>(), t.fullscreen)
     };
     let (mut x, mut y, mut w, mut h) = rect;
+    // Pantalla completa: la pestaña ocupa toda la ventana (que ya está a pantalla completa).
+    if fs.is_some() && fs == active {
+        if let Some(win) = app.get_window("main") {
+            if let (Ok(sz), Ok(sf)) = (win.inner_size(), win.scale_factor()) {
+                (x, y, w, h) = (0.0, 0.0, sz.width as f64 / sf, sz.height as f64 / sf);
+            }
+        }
+    }
     // Huella reforzada: la página mide un múltiplo de 100 px (centrada), como el
     // "letterboxing" de Tor Browser. Así el tamaño de la ventana no identifica a nadie.
     if sh.settings.lock().fp_strict && w >= 200.0 && h >= 200.0 {
@@ -1036,7 +1270,8 @@ pub fn layout(app: &AppHandle, sh: &Shared) {
     }
 }
 
-pub fn activate(app: &AppHandle, sh: &Shared, id: u32) {
+pub fn activate(app: &AppHandle, sh: &Arc<Shared>, id: u32) {
+    leave_fullscreen_unless(app, sh, Some(id));
     {
         let mut t = sh.tabs.lock();
         if t.list.iter().any(|x| x.id == id) {
@@ -1049,6 +1284,9 @@ pub fn activate(app: &AppHandle, sh: &Shared, id: u32) {
 }
 
 pub async fn close(app: &AppHandle, sh: &Arc<Shared>, id: u32) -> anyhow::Result<()> {
+    if sh.tabs.lock().fullscreen == Some(id) {
+        set_fullscreen(app, sh, id, false);
+    }
     if let Some(wv) = app.get_webview(&label(id)) {
         let _ = wv.close();
     }

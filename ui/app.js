@@ -325,6 +325,7 @@ function fillSettings() {
   invoke('cert_info').then(c => {
     $('cert-mgr').classList.toggle('hidden', !c.manager);
     $('cert-mgr-note').classList.toggle('hidden', !c.manager);
+    $('cert-cancel-note').classList.toggle('hidden', !c.manager);
     $('cert-af').textContent = t(c.autofirma ? 'afOk' : 'afNo');
     $('cert-af').className = 'priv ' + (c.autofirma ? 'max' : 'low');
     $('cert-afdl').classList.toggle('hidden', !!c.autofirma);
@@ -568,7 +569,13 @@ $('btn-reload').onclick = () => invoke('nav_action', { action: 'reload' });
 $('btn-home').onclick = () => { closePage(); invoke('nav_action', { action: 'home' }); };
 $('addr').onfocus = () => { editingAddr = true; setTimeout(() => $('addr').select(), 0); };
 $('addr').onblur = () => { editingAddr = false; };
-$('addr-form').onsubmit = (e) => { e.preventDefault(); const v = $('addr').value; $('addr').blur(); closePage(); invoke('navigate', { id: null, input: v }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); };
+$('addr').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const a = activeTab();
+  $('addr').value = a && (a.has_view || a.https_warn) ? a.url : '';
+  $('addr').blur();
+});
+$('addr-form').onsubmit = (e) => { e.preventDefault(); const v = $('addr').value; if (!v.trim()) return; $('addr').blur(); closePage(); invoke('navigate', { id: null, input: v }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]])); };
 $('search-form').onsubmit = (e) => { e.preventDefault(); const v = $('search').value; $('search').value = ''; invoke('navigate', { id: null, input: v }); };
 $('btn-star').onclick = async () => {
   const a = activeTab(); if (!a || !a.has_view) return;
@@ -661,18 +668,45 @@ let hTimer = null;
 $('h-search').oninput = () => { clearTimeout(hTimer); hTimer = setTimeout(loadHistory, 200); };
 $('h-clear').onclick = () => invoke('clean', { opts: { history: true } }).then(loadHistory);
 
+// Atajos. Los mismos llegan también desde dentro de las páginas (evento 'shortcut', ver
+// tabs::shortcut en el motor), así que funcionan esté donde esté el foco.
+function runShortcut(n) {
+  const ids = S ? S.tabs.map(x => x.id) : [];
+  const i = ids.indexOf(S && S.active);
+  switch (n) {
+    // Pestaña nueva: el cursor queda en la barra de direcciones para escribir (como en Chrome).
+    case 'newtab': $('btn-newtab').click(); $('addr').focus(); break;
+    case 'newtab-private': $('btn-newtab-private').click(); $('addr').focus(); break;
+    case 'close': if (S && S.active) invoke('close_tab', { id: S.active }); break;
+    case 'addr': $('addr').focus(); break;
+    case 'reload': invoke('nav_action', { action: 'reload' }); break;
+    case 'history': openPage('history'); break;
+    case 'home': $('btn-home').click(); break;
+    case 'clean': $('btn-quickclean').click(); break;
+    case 'next-tab': case 'prev-tab':
+      if (ids.length > 1) invoke('activate_tab', { id: ids[(i + (n === 'next-tab' ? 1 : ids.length - 1)) % ids.length] });
+      break;
+  }
+}
+function keyShortcut(e) {
+  const k = e.key.toLowerCase(), c = e.ctrlKey, s = e.shiftKey, a = e.altKey;
+  if (c && !s && !a && k === 't') return 'newtab';
+  if (c && s && !a && k === 'n') return 'newtab-private';
+  if (c && !s && !a && (k === 'w' || k === 'f4')) return 'close';
+  if ((c && !s && !a && k === 'l') || (a && !c && !s && k === 'd') || (k === 'f6' && !c && !a)) return 'addr';
+  if ((k === 'f5' && !c && !a) || (c && !s && !a && k === 'r')) return 'reload';
+  if (c && !s && !a && k === 'h') return 'history';
+  if (a && !c && e.key === 'Home') return 'home';
+  if (c && !a && k === 'tab') return s ? 'prev-tab' : 'next-tab';
+  if (c && s && (k === 'delete' || k === 'supr')) return 'clean';
+  return null;
+}
 window.addEventListener('keydown', (e) => {
-  const k = e.key.toLowerCase();
-  if (e.ctrlKey && !e.shiftKey && k === 't') { e.preventDefault(); $('btn-newtab').click(); }
-  if (e.ctrlKey && e.shiftKey && k === 'n') { e.preventDefault(); $('btn-newtab-private').click(); }
-  if (e.ctrlKey && k === 'w') { e.preventDefault(); if (S && S.active) invoke('close_tab', { id: S.active }); }
-  if (e.ctrlKey && k === 'l') { e.preventDefault(); $('addr').focus(); }
-  if (e.ctrlKey && k === 'h') { e.preventDefault(); openPage('history'); }
-  if (e.ctrlKey && e.shiftKey && (k === 'delete' || k === 'supr')) { e.preventDefault(); $('btn-quickclean').click(); }
+  const n = keyShortcut(e);
+  if (n) { e.preventDefault(); runShortcut(n); return; }
   if (e.key === 'Escape' && pageOpen) closePage();
-  if (e.altKey && e.key === 'Home') { e.preventDefault(); $('btn-home').click(); }
-  if (e.key === 'F5') { e.preventDefault(); invoke('nav_action', { action: 'reload' }); }
 });
+listen('shortcut', (ev) => runShortcut(ev.payload));
 
 listen('tabs', (ev) => { if (!S) return; S.tabs = ev.payload.list; S.active = ev.payload.active; renderTabs(); updateFillSoon(); });
 listen('log', () => { if (!$('panel').classList.contains('hidden')) refreshLogs(); });
@@ -692,6 +726,8 @@ listen('notice', (ev) => {
   const p = ev.payload;
   const msg = typeof p === 'string' ? p : (has('notice_' + p.code) ? t('notice_' + p.code) : p.message);
   // Certificado o AutoFirma en modo Sombra: se ofrece abrir la misma web en una pestaña normal.
+  // El mismo aviso ya a la vista: no se repite.
+  if ([...$('alerts').querySelectorAll('.alert.notice .msg')].some(m => m.textContent === msg)) return;
   const btns = [[t('ok'), '', null]];
   if (p && /^https?:/.test(p.url || '')) btns.unshift([t('openNormal'), 'primary', () => invoke('new_tab', { url: p.url, private: false })]);
   showAlert('notice', msg, btns);

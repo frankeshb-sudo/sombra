@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Sombra: navegador ligero y privado, sin publicidad, con Tor integrado"
 license = "GPL-3.0-or-later"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.89"
 
 [build-dependencies]
 tauri-build = { version = "2.5", features = [] }
@@ -44,12 +44,15 @@ webpki-roots = "1"
 # Linux: acceso al motor WebKit (idiomas que se piden a las webs).
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
+# Linux: atajos de teclado, zoom y pantalla completa dentro de las páginas.
+gtk = "0.18"
 
 # Windows: acceso al motor WebView2 (certificado digital y apps externas como AutoFirma).
 # Mismas versiones que usa wry.
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
 windows-core = "0.62"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
 
 # Argon2 sin optimizar tarda varios segundos: se optimiza también en las pruebas.
 [profile.dev.package.argon2]

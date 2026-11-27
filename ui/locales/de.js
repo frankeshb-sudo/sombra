@@ -149,4 +149,5 @@ I18N.de = {
   notice_afirmaSombra: "Diese Website möchte AutoFirma öffnen. Im Sombra-Modus wird es nicht geöffnet, weil es verraten würde, wer du bist. Öffne sie in einem normalen Tab.",
   openNormal: "In normalem Tab öffnen",
   log_afirma: "AutoFirma geöffnet: Die Website kann 10 Minuten lang auf diesem PC damit kommunizieren",
+  certCancelNote: "Wenn du das Zertifikatsfenster abbrichst, fragt diese Website erst wieder, nachdem du Sombra geschlossen und neu geöffnet hast.",
 };

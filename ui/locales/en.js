@@ -149,4 +149,5 @@ I18N.en = {
   notice_afirmaSombra: "This website wants to open AutoFirma. In Sombra mode it does not open, because it would reveal who you are. Open it in a normal tab.",
   openNormal: "Open in normal tab",
   log_afirma: "AutoFirma opened: the website can talk to it on this PC for 10 minutes",
+  certCancelNote: "If you cancel the certificate window, that site won't ask again until you close and reopen Sombra.",
 };

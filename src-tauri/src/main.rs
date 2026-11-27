@@ -661,6 +661,40 @@ async fn collect_creds(app: &AppHandle, sh: &Shared) {
     }
 }
 
+/// Trae al frente la ventana de la Sombra que ya está abierta (Windows).
+fn focus_existing(data_dir: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::{HWND, LPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
+        };
+        use windows_core::BOOL;
+        let Some(pid) = std::fs::read_to_string(data_dir.join("sombra.pid")).ok().and_then(|s| s.trim().parse::<u32>().ok()) else {
+            return;
+        };
+        unsafe extern "system" fn each(h: HWND, l: LPARAM) -> BOOL {
+            let mut p = 0u32;
+            unsafe {
+                GetWindowThreadProcessId(h, Some(&mut p));
+                if p == l.0 as u32 && IsWindowVisible(h).as_bool() && GetWindowTextLengthW(h) > 0 {
+                    if IsIconic(h).as_bool() {
+                        let _ = ShowWindow(h, SW_RESTORE);
+                    }
+                    let _ = SetForegroundWindow(h);
+                    return BOOL(0);
+                }
+            }
+            BOOL(1)
+        }
+        unsafe {
+            let _ = EnumWindows(Some(each), LPARAM(pid as isize));
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = data_dir;
+}
+
 fn main() {
     let _ = env_logger::try_init();
     let data_dir = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("Sombra");
@@ -668,6 +702,21 @@ fn main() {
     state::protect_dir(&data_dir);
     // Modo Sombra: nada de la navegación se conserva; su carpeta del motor se borra al abrir y
     // al cerrar. Modo normal: su propia carpeta, que se conserva (sesiones, cookies).
+    // Una sola Sombra abierta a la vez: una segunda copia borraría la carpeta del modo Sombra
+    // que usa la primera. Si ya hay una, se trae al frente su ventana y esta se cierra.
+    let _lock = match std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(data_dir.join("sombra.lock")) {
+        Ok(f) => {
+            if f.try_lock().is_err() {
+                focus_existing(&data_dir);
+                return;
+            }
+            if let Err(e) = std::fs::write(data_dir.join("sombra.pid"), std::process::id().to_string()) {
+                log::warn!("No se pudo guardar sombra.pid (otra copia no podrá traer esta ventana al frente): {e}");
+            }
+            Some(f)
+        }
+        Err(_) => None,
+    };
     let web_dir = data_dir.join("webview");
     let normal_dir = data_dir.join("webview-normal");
     let _ = std::fs::remove_dir_all(&web_dir);

@@ -149,4 +149,5 @@ I18N.pl = {
   notice_afirmaSombra: "Ta strona chce otworzyć AutoFirma. W trybie Sombra nie zostanie otwarta, bo zdradziłaby, kim jesteś. Otwórz ją w zwykłej karcie.",
   openNormal: "Otwórz w zwykłej karcie",
   log_afirma: "AutoFirma otwarta: strona może się z nią komunikować na tym komputerze przez 10 minut",
+  certCancelNote: "Jeśli anulujesz okno certyfikatu, ta strona nie poprosi o niego ponownie, dopóki nie zamkniesz i nie otworzysz Sombry.",
 };

@@ -43,6 +43,8 @@ pub struct Tabs {
     pub next: u32,
     /// Zona donde se dibuja la web (x, y, ancho, alto) en píxeles lógicos.
     pub rect: (f64, f64, f64, f64),
+    /// Pestaña con un vídeo (o algo) a pantalla completa: ocupa toda la pantalla.
+    pub fullscreen: Option<u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]

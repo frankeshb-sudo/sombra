@@ -149,4 +149,5 @@ I18N.pt = {
   notice_afirmaSombra: "Este site quer abrir o AutoFirma. No modo Sombra não abre, porque revelaria quem és. Abre-o num separador normal.",
   openNormal: "Abrir num separador normal",
   log_afirma: "AutoFirma aberto: o site pode comunicar com ele neste PC durante 10 minutos",
+  certCancelNote: "Se cancelares a janela do certificado, esse site não o volta a pedir até fechares e abrires o Sombra.",
 };

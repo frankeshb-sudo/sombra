@@ -149,4 +149,5 @@ I18N.es = {
   notice_afirmaSombra: "Esta web quiere abrir AutoFirma. En modo Sombra no se abre, porque diría quién eres. Ábrela en una pestaña normal.",
   openNormal: "Abrir en pestaña normal",
   log_afirma: "AutoFirma abierta: la web puede hablar con ella en este PC durante 10 minutos",
+  certCancelNote: "Si cancelas la ventana del certificado, esa web no te lo vuelve a pedir hasta que cierres y abras Sombra.",
 };
