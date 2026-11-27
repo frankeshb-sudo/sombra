@@ -40,7 +40,7 @@ Navegador **ligero y privado**: sin publicidad, con **Tor integrado**, elección
   "mcpServers": {
     "sombra": {
       "command": "node",
-      "args": ["D:/Escritorio/Sombra/mcp/sombra-mcp.mjs"],
+      "args": ["C:/ruta/a/Sombra/mcp/sombra-mcp.mjs"],
       "env": { "SOMBRA_CLIENT": "Claude" }
     }
   }
@@ -77,6 +77,18 @@ Instalador (opcional): `cargo install tauri-cli --version "^2"` y luego `cargo t
 - Las pestañas no tienen ninguna conexión con Sombra ni rastros de Tauri (Tauri va parcheado, ver `src-tauri/vendor/PARCHE.md`). Aun así, una web siempre puede notar que el motor es una vista web de sistema y no un navegador conocido.
 - Contraseñas: si olvidas la contraseña maestra **y** pierdes las 12 palabras, no hay forma de recuperarlas (así nadie más puede).
 - Previsto: favoritos e historial dentro de la bóveda, recuperación con llave USB / otro dispositivo / personas de confianza, versión Android.
+
+## Política de firma de código / Code signing policy
+
+Los instaladores de Windows de Sombra se firman con un certificado de **SignPath Foundation**, gracias a la firma gratuita para código libre de [SignPath.io](https://signpath.io).
+
+*Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).*
+
+- **Quién compila:** solo GitHub Actions, a partir del código de este repositorio (`.github/workflows/windows.yml`). Nada se firma a mano ni desde un equipo personal.
+- **Roles:** mantenedor, revisor y aprobador de cada firma: [frankeshb-sudo](https://github.com/frankeshb-sudo). Cada versión se aprueba a mano antes de firmarla.
+- **Privacidad:** Sombra no envía datos de uso ni telemetría a nadie. Solo se conecta a internet para lo que tú le pides: las webs que abres y, en modo Sombra, la red Tor para llevarlas.
+
+*Privacy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it (the websites you open and, in Sombra mode, the Tor network that carries them).*
 
 ## Créditos
 

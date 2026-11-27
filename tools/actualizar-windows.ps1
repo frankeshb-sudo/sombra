@@ -1,6 +1,6 @@
 ﻿# Actualiza la Sombra instalada en este PC con el instalador que GitHub compila para main.
 #  1) Busca la compilación de Windows del último cambio de main (si no hay, la lanza).
-#  2) Espera a que termine y descarga el instalador en D:\Escritorio\Sombra\instalador\<cambio>
+#  2) Espera a que termine y descarga el instalador en <Escritorio>\Sombra\instalador\<cambio>
 #     (y lo copia a Sombra_0.1.0_x64-setup.exe).
 #  3) Lo instala sin preguntas (/S) encima del que hay. Tus datos (ajustes, sesiones,
 #     contraseñas) se conservan: el instalador solo cambia el programa.
@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
 if (-not $gh) { $gh = "C:\Program Files\GitHub CLI\gh.exe" }
 $repo = "frankeshb-sudo/sombra"
-$dest = "D:\Escritorio\Sombra\instalador"
+$dest = Join-Path ([Environment]::GetFolderPath("Desktop")) "Sombra\instalador"
 $setup = Join-Path $dest "Sombra_0.1.0_x64-setup.exe"
 $exe = Join-Path $env:LOCALAPPDATA "Sombra\sombra.exe"
 
