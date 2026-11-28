@@ -25,6 +25,7 @@ I18N.de = {
   histNormalOnly: "Der Verlauf gilt nur für den normalen Modus: Was du im Sombra-Modus besuchst, wird nie gespeichert.",
   restoreSession: "Tabs beim Öffnen von Sombra wiederherstellen",
   restoreSessionNote: "Die normalen Tabs, die beim Schließen offen waren, kommen zurück; jeder lädt erst, wenn du ihn öffnest. Tabs im Sombra-Modus werden nie gespeichert.",
+  torIdle: "Verbindet sich, wenn du einen Sombra-Tab öffnest",
   cleanOnExit: 'Verlauf beim Schließen löschen', viewHistory: 'Verlauf anzeigen', histSearchPh: 'Im Verlauf suchen',
   histEmpty: 'Der Verlauf ist leer.', clearAllHistory: 'Alles löschen', remove: 'Entfernen',
   cleaner: 'Bereinigen', cleanNow: 'Jetzt bereinigen', cHistory: 'Verlauf', cCache: 'Cache und Cookies dieser Sitzung',

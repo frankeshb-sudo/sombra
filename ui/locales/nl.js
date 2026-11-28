@@ -25,6 +25,7 @@ I18N.nl = {
   histNormalOnly: "De geschiedenis geldt alleen voor de normale modus: wat je in de Sombra-modus bezoekt, wordt nooit opgeslagen.",
   restoreSession: "Tabbladen herstellen bij openen van Sombra",
   restoreSessionNote: "De normale tabbladen die open waren bij het sluiten komen terug; elk laadt pas als je het opent. Tabbladen in de Sombra-modus worden nooit opgeslagen.",
+  torIdle: "Maakt verbinding als je een Sombra-tabblad opent",
   cleanOnExit: 'Geschiedenis wissen bij afsluiten', viewHistory: 'Geschiedenis bekijken', histSearchPh: 'Zoeken in geschiedenis',
   histEmpty: 'De geschiedenis is leeg.', clearAllHistory: 'Alles wissen', remove: 'Verwijderen',
   cleaner: 'Opschonen', cleanNow: 'Nu opschonen', cHistory: 'Geschiedenis', cCache: 'Cache en cookies van deze sessie',

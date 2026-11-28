@@ -25,6 +25,7 @@ I18N.pt = {
   histNormalOnly: "O histórico é só do modo normal: o que visita no modo Sombra nunca é guardado.",
   restoreSession: "Recuperar os separadores ao abrir o Sombra",
   restoreSessionNote: "Voltam os separadores normais que tinha ao fechar; cada um carrega quando o abre. Os do modo Sombra nunca são guardados.",
+  torIdle: "Liga-se ao abrir um separador Sombra",
   cleanOnExit: 'Apagar o histórico ao fechar', viewHistory: 'Ver histórico', histSearchPh: 'Pesquisar no histórico',
   histEmpty: 'O histórico está vazio.', clearAllHistory: 'Apagar tudo', remove: 'Remover',
   cleaner: 'Limpeza', cleanNow: 'Limpar agora', cHistory: 'Histórico', cCache: 'Cache e cookies desta sessão',

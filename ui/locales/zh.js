@@ -25,6 +25,7 @@ I18N.zh = {
   histNormalOnly: "历史记录仅用于普通模式：在 Sombra 模式下访问的内容永远不会被保存。",
   restoreSession: "打开 Sombra 时恢复标签页",
   restoreSessionNote: "关闭时打开的普通标签页会回来；每个标签页在你打开它时才加载。Sombra 模式的标签页永远不会被保存。",
+  torIdle: "打开 Sombra 标签页时连接",
   cleanOnExit: '关闭时清除历史记录', viewHistory: '查看历史记录', histSearchPh: '搜索历史记录',
   histEmpty: '历史记录为空。', clearAllHistory: '全部清除', remove: '移除',
   cleaner: '清理工具', cleanNow: '立即清理', cHistory: '历史记录', cCache: '本次会话的缓存和 Cookie',

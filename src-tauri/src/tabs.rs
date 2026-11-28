@@ -1085,6 +1085,10 @@ pub async fn new_tab(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>) -> 
 
 /// Crea una pestaña en modo Sombra (`private`) o normal, y la activa.
 pub async fn new_tab_mode(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>, private: bool) -> anyhow::Result<u32> {
+    // Primera pestaña Sombra: Tor empieza a conectar ya, mientras escribes la dirección.
+    if private {
+        sh.tor.ensure_started();
+    }
     let id = {
         let mut t = sh.tabs.lock();
         let id = t.next;

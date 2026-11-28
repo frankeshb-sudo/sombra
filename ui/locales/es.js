@@ -25,6 +25,7 @@ I18N.es = {
   histNormalOnly: "El historial es solo del modo normal: lo que visitas en modo Sombra nunca se guarda.",
   restoreSession: "Recuperar las pestañas al abrir Sombra",
   restoreSessionNote: "Vuelven las pestañas normales que tenías al cerrar; cada una carga cuando la abres. Las del modo Sombra nunca se guardan.",
+  torIdle: "Se conecta al abrir una pestaña Sombra",
   cleanOnExit: 'Borrar el historial al cerrar Sombra', viewHistory: 'Ver historial', histSearchPh: 'Buscar en el historial',
   histEmpty: 'El historial está vacío.', clearAllHistory: 'Borrar todo', remove: 'Quitar',
   cleaner: 'Limpiador', cleanNow: 'Limpiar ahora', cHistory: 'Historial', cCache: 'Caché y cookies de esta sesión',

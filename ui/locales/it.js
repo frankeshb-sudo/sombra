@@ -25,6 +25,7 @@ I18N.it = {
   histNormalOnly: "La cronologia riguarda solo la modalità normale: ciò che visiti in modalità Sombra non viene mai salvato.",
   restoreSession: "Ripristina le schede all'apertura di Sombra",
   restoreSessionNote: "Tornano le schede normali aperte alla chiusura; ognuna si carica quando la apri. Le schede della modalità Sombra non vengono mai salvate.",
+  torIdle: "Si connette quando apri una scheda Sombra",
   cleanOnExit: 'Cancella la cronologia alla chiusura', viewHistory: 'Vedi cronologia', histSearchPh: 'Cerca nella cronologia',
   histEmpty: 'La cronologia è vuota.', clearAllHistory: 'Cancella tutto', remove: 'Rimuovi',
   cleaner: 'Pulizia', cleanNow: 'Pulisci ora', cHistory: 'Cronologia', cCache: 'Cache e cookie di questa sessione',

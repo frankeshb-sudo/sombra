@@ -25,6 +25,7 @@ I18N.fr = {
   histNormalOnly: "L'historique ne concerne que le mode normal : ce que vous visitez en mode Sombra n'est jamais enregistré.",
   restoreSession: "Restaurer les onglets à l'ouverture de Sombra",
   restoreSessionNote: "Les onglets normaux ouverts à la fermeture reviennent ; chacun se charge quand vous l'ouvrez. Les onglets du mode Sombra ne sont jamais enregistrés.",
+  torIdle: "Se connecte à l'ouverture d'un onglet Sombra",
   cleanOnExit: 'Effacer l’historique à la fermeture', viewHistory: 'Voir l’historique', histSearchPh: 'Rechercher dans l’historique',
   histEmpty: 'L’historique est vide.', clearAllHistory: 'Tout effacer', remove: 'Retirer',
   cleaner: 'Nettoyeur', cleanNow: 'Nettoyer maintenant', cHistory: 'Historique', cCache: 'Cache et cookies de cette session',

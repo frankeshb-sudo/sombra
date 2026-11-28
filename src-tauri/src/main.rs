@@ -895,16 +895,11 @@ fn main() {
                 }
             });
 
-            // 2) Tor en segundo plano.
-            let tor = sh.tor.clone();
-            let tor_dir = sh.data_dir.join("tor");
-            let country = sh.settings.lock().country.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Some(c) = country.as_deref() {
-                    let _ = tor.set_country(Some(c));
-                }
-                tor.start(tor_dir).await;
-            });
+            // 2) Tor: se prepara, pero solo arranca al usar el modo Sombra (ver Tor::ensure_started).
+            sh.tor.set_base(sh.data_dir.join("tor"));
+            if let Some(c) = sh.settings.lock().country.clone() {
+                let _ = sh.tor.set_country(Some(&c));
+            }
 
             // Bloqueo automático de las contraseñas.
             let sh_v = sh.clone();
@@ -929,9 +924,14 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu"].contains(&v.as_str()))
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu", "medir"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
+            }
+            // Si las pestañas nuevas son del modo Sombra, Tor arranca ya (estará listo antes).
+            if sh.settings.lock().default_private {
+                let tor = sh.tor.clone();
+                tauri::async_runtime::spawn(async move { tor.ensure_started() });
             }
 
             // Solo en pruebas (SOMBRA_SECTEST=descargas): progreso, carpeta y cancelar.
@@ -1062,6 +1062,27 @@ fn main() {
                 });
             }
 
+            // Solo en pruebas (SOMBRA_SECTEST=medir): una web normal y Sombra en reposo, para medir
+            // desde fuera cuánta memoria y procesador gasta (tools/medir.sh).
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("medir") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let url = std::env::var("SOMBRA_MEDIR_URL").unwrap_or_else(|_| "https://en.wikipedia.org/wiki/Web_browser".into());
+                    let a = tabs::new_tab_mode(&app2, &sh2, Some(url), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, a, 60).await;
+                    log::warn!("SECTEST medir cargada tor_listo={}", sh2.tor.is_ready());
+                    for _ in 0..5 {
+                        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+                        let js = "(() => JSON.stringify({ anim: document.getAnimations().filter(a => a.playState === 'running').map(a => (a.animationName || a.constructor.name) + '@' + (a.effect && a.effect.target ? (a.effect.target.id || a.effect.target.className) : '?')), hidden: document.hidden, w: innerWidth, h: innerHeight }))()";
+                        log::warn!("SECTEST medir interfaz: {:?} tor={:?}", tabs::eval_label(&app2, "ui", js.into()).await.map(|v| v.to_string()), sh2.tor.status().message);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(50)).await;
+                    log::warn!("SECTEST medir fin tor_listo={}", sh2.tor.is_ready());
+                });
+            }
+
             // Solo en pruebas (SOMBRA_SECTEST=cookies): DNS seguro y cookies de terceros (modo normal).
             #[cfg(debug_assertions)]
             if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("cookies") {
@@ -1169,6 +1190,7 @@ fn main() {
                     sondear(app2.clone(), n, 55004).await;
                     log::warn!("SECTEST afirma 3 proxy: 55002 bloqueado={} 55004 bloqueado={}", bloqueado(&sh2, 55002), bloqueado(&sh2, 55004));
                     // 4) Modo Sombra: AutoFirma no se abre ni abre puertos.
+                    sh2.tor.ensure_started();
                     while !sh2.tor.is_ready() {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
@@ -1210,6 +1232,7 @@ fn main() {
                     let t0 = std::time::Instant::now();
                     let n = abrir(app2.clone(), sh2.clone(), "https://check.torproject.org/", false).await;
                     log::warn!("SECTEST modos 1 normal (tor listo={}, {:.0} s): {}", sh2.tor.is_ready(), t0.elapsed().as_secs_f32(), ev(app2.clone(), n, TXT).await);
+                    sh2.tor.ensure_started();
                     while !sh2.tor.is_ready() {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
@@ -1266,6 +1289,7 @@ fn main() {
             if std::env::var("SOMBRA_SELFTEST").is_ok() {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
+                    sh2.tor.ensure_started();
                     while !sh2.tor.is_ready() {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
@@ -1294,9 +1318,10 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu"].contains(&v.as_str())) {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu", "medir"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
+                    sh2.tor.ensure_started();
                     while !sh2.tor.is_ready() {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
@@ -1420,6 +1445,7 @@ fn main() {
             if std::env::var("SOMBRA_AUDIT").is_ok() {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
+                    sh2.tor.ensure_started();
                     while !sh2.tor.is_ready() {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }

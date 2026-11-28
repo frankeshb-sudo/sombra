@@ -25,6 +25,7 @@ I18N.ja = {
   histNormalOnly: "履歴は通常モードだけのものです。Sombra モードで見たページは保存されません。",
   restoreSession: "Sombra を開いたときにタブを復元",
   restoreSessionNote: "閉じたときに開いていた通常タブが戻ります。各タブは開いたときに読み込まれます。Sombra モードのタブは保存されません。",
+  torIdle: "Sombra タブを開くと接続します",
   cleanOnExit: '終了時に履歴を消去', viewHistory: '履歴を見る', histSearchPh: '履歴を検索',
   histEmpty: '履歴はありません。', clearAllHistory: 'すべて消去', remove: '削除',
   cleaner: 'クリーナー', cleanNow: '今すぐ消去', cHistory: '履歴', cCache: 'このセッションのキャッシュと Cookie',

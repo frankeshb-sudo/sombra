@@ -8,7 +8,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tor_rtcompat::PreferredRuntime;
@@ -23,6 +24,9 @@ struct HostIso {
 
 #[derive(Clone, Serialize, Default)]
 pub struct TorStatus {
+    /// Tor aún no se ha puesto en marcha: arranca al usar el modo Sombra por primera vez (así
+    /// quien solo usa el modo normal no gasta procesador ni memoria en Tor).
+    pub idle: bool,
     pub ready: bool,
     pub progress: f32,
     pub message: String,
@@ -35,6 +39,9 @@ pub struct Tor {
     prefs: RwLock<StreamPrefs>,
     status: RwLock<TorStatus>,
     hosts: Mutex<HashMap<String, HostIso>>,
+    /// Carpeta de Tor (estado y caché), puesta al abrir Sombra.
+    base: OnceLock<PathBuf>,
+    started: AtomicBool,
 }
 
 impl Tor {
@@ -44,10 +51,33 @@ impl Tor {
             client: RwLock::new(None),
             prefs: RwLock::new(StreamPrefs::new()),
             status: RwLock::new(TorStatus {
-                message: "Conectando con la red Tor...".into(),
+                idle: true,
+                message: "Tor se conecta al abrir una pestaña Sombra".into(),
                 ..Default::default()
             }),
+            base: OnceLock::new(),
+            started: AtomicBool::new(false),
         })
+    }
+
+    /// Dónde guarda Tor su estado (se pone al abrir Sombra; no arranca nada).
+    pub fn set_base(&self, base: PathBuf) {
+        let _ = self.base.set(base);
+    }
+
+    /// Pone Tor en marcha si aún no lo está (la primera vez que hace falta).
+    pub fn ensure_started(self: &Arc<Self>) {
+        let Some(base) = self.base.get().cloned() else { return };
+        if self.started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        {
+            let mut s = self.status.write();
+            s.idle = false;
+            s.message = "Conectando con la red Tor...".into();
+        }
+        let me = self.clone();
+        tokio::spawn(async move { me.start(base).await });
     }
 
     pub fn status(&self) -> TorStatus {
@@ -59,7 +89,7 @@ impl Tor {
     }
 
     /// Arranca Tor en segundo plano. Hasta que esté listo, no sale ni un byte a internet.
-    pub async fn start(self: Arc<Self>, base: PathBuf) {
+    async fn start(self: Arc<Self>, base: PathBuf) {
         let cfg = arti_client::config::TorClientConfigBuilder::from_directories(
             base.join("state"),
             base.join("cache"),
@@ -119,7 +149,8 @@ impl Tor {
 
     /// Abre una conexión anónima. Si Tor no está listo, espera; nunca usa la conexión directa.
     /// Devuelve también un aviso que se dispara si hay que cortar esta conexión (circuito nuevo).
-    pub async fn connect(&self, host: &str, port: u16) -> anyhow::Result<(DataStream, Arc<Notify>)> {
+    pub async fn connect(self: &Arc<Self>, host: &str, port: u16) -> anyhow::Result<(DataStream, Arc<Notify>)> {
+        self.ensure_started();
         let mut waited = 0;
         let client = loop {
             if let Some(c) = self.client.read().clone() {

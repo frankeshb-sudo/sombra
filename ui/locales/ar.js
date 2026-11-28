@@ -25,6 +25,7 @@ I18N.ar = {
   histNormalOnly: "السجل خاص بالوضع العادي فقط: ما تزوره في وضع Sombra لا يُحفظ أبدًا.",
   restoreSession: "استعادة علامات التبويب عند فتح Sombra",
   restoreSessionNote: "تعود علامات التبويب العادية التي كانت مفتوحة عند الإغلاق؛ وتُحمَّل كل منها عند فتحها. علامات تبويب وضع Sombra لا تُحفظ أبدًا.",
+  torIdle: "يتصل عند فتح علامة تبويب Sombra",
   cleanOnExit: 'مسح السجل عند الإغلاق', viewHistory: 'عرض السجل', histSearchPh: 'البحث في السجل',
   histEmpty: 'السجل فارغ.', clearAllHistory: 'مسح الكل', remove: 'إزالة',
   cleaner: 'المنظِّف', cleanNow: 'نظّف الآن', cHistory: 'السجل', cCache: 'ذاكرة التخزين المؤقت وملفات تعريف الارتباط لهذه الجلسة',

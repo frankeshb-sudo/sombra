@@ -199,13 +199,16 @@ function renderBookmarks() {
 
 function renderStatus() {
   const tor = S.tor;
+  // Tor sin arrancar todavía (solo se pone en marcha al usar el modo Sombra): no es un fallo.
+  const idle = tor.idle && !tor.ready;
+  const ok = tor.ready || idle;
   const sh = $('shield');
-  sh.className = 'pill ' + (tor.ready ? (S.settings.blocking_enabled ? 'ok' : 'warn') : tor.error ? 'bad' : 'warn');
-  $('shield-txt').textContent = tor.ready ? (S.settings.blocking_enabled ? t('shieldOk') : t('blockingOff')) : tor.error ? t('shieldBad') : t('shieldWait') + ' ' + Math.round(tor.progress * 100) + '%';
-  $('tor-line').textContent = tor.ready ? t('ready') : (tor.error ? t('torErr') + ': ' + tor.error : t('shieldWait') + '… ' + Math.round(tor.progress * 100) + '%');
+  sh.className = 'pill ' + (ok ? (S.settings.blocking_enabled ? 'ok' : 'warn') : tor.error ? 'bad' : 'warn');
+  $('shield-txt').textContent = ok ? (S.settings.blocking_enabled ? t('shieldOk') : t('blockingOff')) : tor.error ? t('shieldBad') : t('shieldWait') + ' ' + Math.round(tor.progress * 100) + '%';
+  $('tor-line').textContent = tor.ready ? t('ready') : idle ? t('torIdle') : (tor.error ? t('torErr') + ': ' + tor.error : t('shieldWait') + '… ' + Math.round(tor.progress * 100) + '%');
   $('tor-fill').style.width = Math.round((tor.ready ? 1 : tor.progress) * 100) + '%';
-  $('tor-bar').classList.toggle('hidden', tor.ready);
-  $('p-tor').textContent = tor.ready ? t('ready') : Math.round(tor.progress * 100) + '%';
+  $('tor-bar').classList.toggle('hidden', ok);
+  $('p-tor').textContent = tor.ready ? t('ready') : idle ? t('torIdle') : Math.round(tor.progress * 100) + '%';
   $('p-country').textContent = countryName(tor.country);
   $('p-leaks').textContent = S.stats.leaks;
   $('s-page').textContent = S.stats.page;
@@ -724,7 +727,16 @@ $('btn-star').onclick = async () => {
   else await invoke('add_bookmark', { url: a.url, title: a.title || hostOf(a.url), folder: null });
   refresh();
 };
-$('btn-panel').onclick = () => { $('panel').classList.toggle('hidden'); reportRect(); refreshLogs(); };
+$('btn-panel').onclick = () => {
+  $('panel').classList.toggle('hidden'); reportRect(); refreshLogs();
+  if (!$('panel').classList.contains('hidden')) refreshPrivacy();
+};
+// Al volver a la ventana, todo al día enseguida.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  refresh();
+  if (!$('panel').classList.contains('hidden')) refreshPrivacy();
+});
 $('shield').onclick = $('btn-panel').onclick;
 $('ai-pill').onclick = $('btn-panel').onclick;
 $('btn-settings').onclick = () => (pageOpen === 'settings' ? closePage() : openPage('settings'));
@@ -947,6 +959,8 @@ listen('ai-activity', () => refresh());
   if (!S.tabs.length) await invoke('new_tab', { url: null });
   reportRect();
   $('search').focus();
-  setInterval(refresh, 1000);
-  setInterval(refreshPrivacy, 3000);
+  // Con Sombra minimizada no se pregunta nada; el panel de privacidad mira la página (un
+  // script dentro de ella) solo mientras está abierto.
+  setInterval(() => { if (!document.hidden) refresh(); }, 1000);
+  setInterval(() => { if (!document.hidden && !$('panel').classList.contains('hidden')) refreshPrivacy(); }, 3000);
 })();

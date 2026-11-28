@@ -25,6 +25,7 @@ I18N.en = {
   histNormalOnly: "History is only kept for normal mode: what you visit in Sombra mode is never saved.",
   restoreSession: "Restore tabs when Sombra opens",
   restoreSessionNote: "The normal tabs you had open when closing come back; each one loads when you open it. Sombra mode tabs are never saved.",
+  torIdle: "Connects when you open a Sombra tab",
   cleanOnExit: 'Clear history when Sombra closes', viewHistory: 'View history', histSearchPh: 'Search history',
   histEmpty: 'History is empty.', clearAllHistory: 'Clear all', remove: 'Remove',
   cleaner: 'Cleaner', cleanNow: 'Clean now', cHistory: 'History', cCache: 'Cache and cookies of this session',
