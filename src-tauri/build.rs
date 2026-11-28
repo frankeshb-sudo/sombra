@@ -14,6 +14,8 @@ fn main() {
         "download_dismiss",
         "activate_tab",
         "move_tab",
+        "site_perms",
+        "site_perm_set",
         "navigate",
         "nav_action",
         "set_content_rect",

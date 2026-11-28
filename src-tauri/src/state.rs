@@ -83,6 +83,29 @@ pub struct SessionTab {
 
 pub const MAX_SESSION: usize = 100;
 
+/// Permiso que una web pidió en una pestaña normal y lo que contestó el usuario
+/// (permissions.json). En el modo Sombra no se pide ni se guarda nada: todo se deniega.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+pub struct SitePerm {
+    /// "https://web.es" (esquema, dominio y puerto).
+    pub origin: String,
+    /// "camera" | "microphone" | "geolocation" | "notifications"
+    pub perm: String,
+    pub allow: bool,
+}
+
+pub const PERMS: [&str; 4] = ["camera", "microphone", "geolocation", "notifications"];
+
+/// Origen de una dirección (lo que identifica a la web en los permisos). Solo http(s).
+pub fn origin_of(u: &str) -> Option<String> {
+    let u = url::Url::parse(u).ok()?;
+    if !matches!(u.scheme(), "http" | "https") {
+        return None;
+    }
+    let o = u.origin().ascii_serialization();
+    (o != "null").then_some(o)
+}
+
 /// Sesión a partir de la lista de pestañas: solo las normales con una web abierta.
 pub fn session_of(list: &[TabInfo], active: Option<u32>) -> Session {
     let normal: Vec<&TabInfo> = list
@@ -273,6 +296,8 @@ pub struct Shared {
     history_io: Mutex<()>,
     /// Las pestañas han cambiado y la sesión está por guardar (ver save_session).
     pub session_dirty: AtomicBool,
+    /// Permisos de las webs (cámara, micrófono, ubicación, notificaciones) en modo normal.
+    pub site_perms: Mutex<Vec<SitePerm>>,
 }
 
 pub fn now() -> u64 {
@@ -285,6 +310,7 @@ impl Shared {
         let migrated = settings.migrate();
         crate::doh::ENABLED.store(settings.secure_dns, std::sync::atomic::Ordering::Relaxed);
         let bookmarks: Vec<Bookmark> = read_json(&data_dir.join("bookmarks.json")).unwrap_or_default();
+        let site_perms: Vec<SitePerm> = read_json(&data_dir.join("permissions.json")).unwrap_or_default();
         let history: Vec<HistoryEntry> = if settings.history_mode == "save" {
             read_json(&data_dir.join("history.json")).unwrap_or_default()
         } else {
@@ -314,6 +340,7 @@ impl Shared {
             history_dirty: AtomicBool::new(false),
             history_io: Mutex::new(()),
             session_dirty: AtomicBool::new(false),
+            site_perms: Mutex::new(site_perms),
         });
         if migrated {
             sh.save_settings();
@@ -600,6 +627,67 @@ impl Shared {
         ok
     }
 
+    /// Como ask_user, pero distingue "no ha contestado" (None) de "no".
+    pub async fn ask_user_answer(&self, kind: &str, params: serde_json::Value, message: String) -> Option<bool> {
+        let id = self.next_approval.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.approvals.lock().insert(id, tx);
+        self.emit("approval", serde_json::json!({ "id": id, "kind": kind, "params": params, "message": message }));
+        let res = tokio::time::timeout(Duration::from_secs(120), rx).await;
+        self.approvals.lock().remove(&id);
+        self.emit("approval-closed", id);
+        res.ok().and_then(|r| r.ok())
+    }
+
+    // ---------- Permisos de las webs ----------
+
+    pub fn site_perm(&self, origin: &str, perm: &str) -> Option<bool> {
+        self.site_perms.lock().iter().find(|p| p.origin == origin && p.perm == perm).map(|p| p.allow)
+    }
+
+    fn save_site_perms(&self) {
+        let l = self.site_perms.lock().clone();
+        write_json(&self.data_dir.join("permissions.json"), &l);
+    }
+
+    pub fn set_site_perm(&self, origin: &str, perm: &str, allow: bool) {
+        {
+            let mut l = self.site_perms.lock();
+            l.retain(|p| !(p.origin == origin && p.perm == perm));
+            l.push(SitePerm { origin: origin.into(), perm: perm.into(), allow });
+        }
+        self.save_site_perms();
+    }
+
+    /// Olvida un permiso (o todos los de una web si `perm` es None): la próxima vez se pregunta.
+    pub fn remove_site_perm(&self, origin: &str, perm: Option<&str>) {
+        self.site_perms.lock().retain(|p| !(p.origin == origin && perm.is_none_or(|k| p.perm == k)));
+        self.save_site_perms();
+    }
+
+    /// Decide un permiso de una pestaña normal: lo que se contestó antes, o se pregunta (y se
+    /// recuerda la respuesta). Si no se contesta en 2 minutos, se deniega sin recordarlo.
+    pub async fn decide_permission(&self, origin: String, perm: &'static str) -> bool {
+        if let Some(a) = self.site_perm(&origin, perm) {
+            return a;
+        }
+        let host = url::Url::parse(&origin).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_else(|| origin.clone());
+        let msg = format!("{host} quiere usar: {perm}");
+        match self.ask_user_answer("perm", serde_json::json!({ "host": host, "perm": perm }), msg).await {
+            Some(a) => {
+                self.set_site_perm(&origin, perm, a);
+                a
+            }
+            None => false,
+        }
+    }
+
+    /// Preguntas esperando respuesta (solo para las pruebas).
+    #[cfg(debug_assertions)]
+    pub fn pending_approvals(&self) -> Vec<u64> {
+        self.approvals.lock().keys().copied().collect()
+    }
+
     pub fn resolve_approval(&self, id: u64, allow: bool) {
         if let Some(tx) = self.approvals.lock().remove(&id) {
             let _ = tx.send(allow);
@@ -737,6 +825,16 @@ pub fn suggestions(history: &[HistoryEntry], bookmarks: &[Bookmark], query: &str
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn origen_de_los_permisos() {
+        assert_eq!(super::origin_of("https://meet.jit.si/sala?x=1").as_deref(), Some("https://meet.jit.si"));
+        assert_eq!(super::origin_of("http://localhost:8080/a").as_deref(), Some("http://localhost:8080"));
+        assert_eq!(super::origin_of("https://WWW.Ejemplo.ES:443/").as_deref(), Some("https://www.ejemplo.es"));
+        assert_eq!(super::origin_of("file:///etc/passwd"), None);
+        assert_eq!(super::origin_of("data:text/html,hola"), None);
+        assert_eq!(super::origin_of("no es una url"), None);
+    }
 
     #[test]
     fn sesion_solo_normales() {

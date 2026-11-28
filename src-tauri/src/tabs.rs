@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tauri::webview::{PageLoadEvent, PermissionResponse, WebviewBuilder};
+use tauri::webview::{PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 pub struct Engine {
@@ -817,6 +817,60 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
                 &mut token,
             );
         }
+        // Permisos (cámara, micrófono, ubicación, notificaciones). Modo Sombra: todo denegado.
+        // Modo normal: lo contestado antes para esa web, o se pregunta (y se recuerda). Lo
+        // demás (portapapeles, sensores...) se deniega, como hasta ahora.
+        {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                ICoreWebView2PermissionRequestedEventArgs3, COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
+                COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+                COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY,
+            };
+            use webview2_com::PermissionRequestedEventHandler;
+            let sh2 = sh.clone();
+            let _ = core.add_PermissionRequested(
+                &PermissionRequestedEventHandler::create(Box::new(move |_, args| {
+                    let Some(a) = args else { return Ok(()) };
+                    // Sombra decide y WebView2 no guarda nada por su cuenta (así, quitar un
+                    // permiso en Ajustes vale de verdad).
+                    if let Ok(a3) = a.cast::<ICoreWebView2PermissionRequestedEventArgs3>() {
+                        let _ = a3.SetSavesInProfile(false);
+                    }
+                    let mut k = COREWEBVIEW2_PERMISSION_KIND::default();
+                    a.PermissionKind(&mut k)?;
+                    let perm = match k {
+                        COREWEBVIEW2_PERMISSION_KIND_CAMERA => Some("camera"),
+                        COREWEBVIEW2_PERMISSION_KIND_MICROPHONE => Some("microphone"),
+                        COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION => Some("geolocation"),
+                        COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS => Some("notifications"),
+                        _ => None,
+                    };
+                    let mut p = PWSTR::null();
+                    a.Uri(&mut p)?;
+                    let origin = crate::state::origin_of(&webview2_com::take_pwstr(p));
+                    let (Some(perm), Some(origin), false) = (perm, origin, private) else {
+                        a.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY)?;
+                        return Ok(());
+                    };
+                    if let Some(allow) = sh2.site_perm(&origin, perm) {
+                        a.SetState(if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
+                        return Ok(());
+                    }
+                    // Hay que preguntar: la petición espera (aplazada) a la respuesta.
+                    let deferral = a.GetDeferral()?;
+                    let rid = crate::downloads::keep_perm_request(a.clone(), deferral);
+                    let sh3 = sh2.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let allow = sh3.decide_permission(origin, perm).await;
+                        if let Some(app) = sh3.app.get() {
+                            let _ = app.run_on_main_thread(move || crate::downloads::finish_perm_request(rid, allow));
+                        }
+                    });
+                    Ok(())
+                })),
+                &mut token,
+            );
+        }
         // Clic derecho en un enlace (pestañas normales): "Abrir enlace en modo Sombra", justo
         // debajo de "Abrir vínculo en una ventana nueva".
         if !private {
@@ -1341,7 +1395,6 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
     }
     let builder = builder
         .initialization_script_for_all_frames(privacy_script(&eng.fp_key, eng.fp_seed, strict, yt, private))
-        .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_navigation(move |u| {
             if u.scheme() == "afirma" {
                 return open_afirma(&sh_nav, id, private, u);
@@ -1494,6 +1547,59 @@ fn linux_hooks(wv: webkit2gtk::WebView, sh: Arc<Shared>, app: AppHandle, id: u32
         }
     }
     linux_downloads(&wv, &sh, tab_private(&sh, id));
+    // Permisos (cámara, micrófono, ubicación, notificaciones). Modo Sombra: todo denegado.
+    // Modo normal: lo contestado antes para esa web, o se pregunta (y se recuerda). Lo demás
+    // se deniega, como hasta ahora.
+    {
+        use gtk::glib::prelude::*;
+        use webkit2gtk::{
+            GeolocationPermissionRequest, NotificationPermissionRequest, PermissionRequestExt, UserMediaPermissionRequest, UserMediaPermissionRequestExt,
+        };
+        let sh2 = sh.clone();
+        wv.connect_permission_request(move |w, req| {
+            let origin = w.uri().and_then(|u| crate::state::origin_of(&u));
+            let perms: Vec<&'static str> = if let Some(m) = req.downcast_ref::<UserMediaPermissionRequest>() {
+                let mut v = Vec::new();
+                if m.is_for_video_device() {
+                    v.push("camera");
+                }
+                if m.is_for_audio_device() {
+                    v.push("microphone");
+                }
+                v
+            } else if req.is::<GeolocationPermissionRequest>() {
+                vec!["geolocation"]
+            } else if req.is::<NotificationPermissionRequest>() {
+                vec!["notifications"]
+            } else {
+                Vec::new()
+            };
+            let (Some(origin), false, false) = (origin, perms.is_empty(), tab_private(&sh2, id)) else {
+                req.deny();
+                return true;
+            };
+            // La respuesta llega en el hilo de la interfaz (los objetos de WebKit no se
+            // pueden pasar entre hilos): se pregunta aparte y se contesta aquí.
+            let (tx, rx) = futures::channel::oneshot::channel::<bool>();
+            let sh3 = sh2.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut allow = true;
+                for p in perms {
+                    allow = allow && sh3.decide_permission(origin.clone(), p).await;
+                }
+                let _ = tx.send(allow);
+            });
+            let req = req.clone();
+            gtk::glib::MainContext::default().spawn_local(async move {
+                if rx.await.unwrap_or(false) {
+                    req.allow();
+                } else {
+                    req.deny();
+                }
+            });
+            true
+        });
+    }
     // Clic derecho en un enlace (pestañas normales): "Abrir enlace en modo Sombra", justo
     // debajo de "Abrir enlace en una ventana nueva".
     if !tab_private(&sh, id) {

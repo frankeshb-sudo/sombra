@@ -1,4 +1,4 @@
-﻿// Simulación de Tauri para ver la interfaz en un navegador normal (solo para desarrollo).
+// Simulación de Tauri para ver la interfaz en un navegador normal (solo para desarrollo).
 (() => {
   const now = Math.floor(Date.now() / 1000);
   const state = {
@@ -41,6 +41,7 @@
     get_history: ({ query }) => ({ items: history.filter(h => !query || (h.url + h.title).toLowerCase().includes(query.toLowerCase())), total: history.length }),
     set_settings: ({ patch }) => { Object.assign(state.settings, patch); return state.settings; },
     activate_tab: ({ id }) => { state.active = id; },
+    site_perms: () => [{ origin: 'https://meet.jit.si', perm: 'camera', allow: true }, { origin: 'https://meet.jit.si', perm: 'microphone', allow: true }, { origin: 'https://www.openstreetmap.org', perm: 'geolocation', allow: false }, { origin: 'https://noticias-muy-largas-del-dia.example.com', perm: 'notifications', allow: false }],
     move_tab: ({ id, to }) => { const i = state.tabs.findIndex(t => t.id === id); const [t] = state.tabs.splice(i, 1); state.tabs.splice(Math.min(to, state.tabs.length), 0, t); window.__lastMove = { id, to }; },
     clean: () => ({ done: [] }),
     vault_status: () => ({ exists: vault.exists, unlocked: vault.unlocked, hint: 'el perro', count: 2 }),

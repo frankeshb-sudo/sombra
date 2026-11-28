@@ -18,6 +18,8 @@
     "allow-download-dismiss",
     "allow-activate-tab",
     "allow-move-tab",
+    "allow-site-perms",
+    "allow-site-perm-set",
     "allow-navigate",
     "allow-nav-action",
     "allow-set-content-rect",

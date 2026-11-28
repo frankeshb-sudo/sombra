@@ -218,6 +218,42 @@ pub fn drop_native(id: u32) {
     NATIVE.with(|m| m.borrow_mut().remove(&id));
 }
 
+/// Peticiones de permiso de WebView2 esperando a que el usuario conteste (objetos del sistema,
+/// solo en el hilo principal, como las descargas).
+#[cfg(windows)]
+type PermReq = (
+    webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2PermissionRequestedEventArgs,
+    webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
+);
+#[cfg(windows)]
+thread_local! {
+    static PERM_REQS: std::cell::RefCell<std::collections::HashMap<u64, PermReq>> = Default::default();
+}
+#[cfg(windows)]
+static NEXT_PERM: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+#[cfg(windows)]
+pub fn keep_perm_request(
+    args: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2PermissionRequestedEventArgs,
+    deferral: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
+) -> u64 {
+    let id = NEXT_PERM.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    PERM_REQS.with(|m| m.borrow_mut().insert(id, (args, deferral)));
+    id
+}
+
+/// Contesta una petición de permiso aplazada (en el hilo principal).
+#[cfg(windows)]
+pub fn finish_perm_request(id: u64, allow: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY};
+    if let Some((a, d)) = PERM_REQS.with(|m| m.borrow_mut().remove(&id)) {
+        unsafe {
+            let _ = a.SetState(if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY });
+            let _ = d.Complete();
+        }
+    }
+}
+
 /// Cancela una descarga en marcha (hay que llamarla en el hilo principal).
 pub fn cancel_native(id: u32) {
     let n = NATIVE.with(|m| m.borrow_mut().remove(&id));

@@ -350,7 +350,28 @@ function fillStaticLists() {
   }
 }
 
+/* Permisos guardados de las webs: cada uno se puede cambiar o quitar (se volverá a preguntar). */
+async function loadPerms() {
+  const box = $('s-perms'); box.textContent = '';
+  const list = await invoke('site_perms').catch(() => []);
+  if (!list.length) { box.append(el('p', 'muted small', t('sitePermsNone'))); return; }
+  for (const p of list) {
+    const row = el('div', 'perm-row');
+    row.append(el('span', 'po', p.origin.replace(/^https:\/\//, '')), el('span', 'pk', t('perm_' + p.perm)));
+    const sel = el('select', 'field');
+    for (const [v, k] of [['1', 'permAllowed'], ['0', 'permBlocked']]) { const o = el('option', '', t(k)); o.value = v; sel.append(o); }
+    sel.value = p.allow ? '1' : '0';
+    sel.onchange = () => invoke('site_perm_set', { origin: p.origin, perm: p.perm, allow: sel.value === '1' }).then(loadPerms);
+    const rm = el('button', 'rm'); rm.title = t('remove');
+    rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    rm.onclick = () => invoke('site_perm_set', { origin: p.origin, perm: p.perm, allow: null }).then(loadPerms);
+    row.append(sel, rm);
+    box.append(row);
+  }
+}
+
 function fillSettings() {
+  loadPerms();
   const s = S.settings;
   $('s-lang').value = s.language;
   $('s-theme').value = s.theme;
@@ -930,8 +951,10 @@ listen('fullscreen', (ev) => document.documentElement.classList.toggle('fs', !!e
 listen('tabs', (ev) => { if (!S) return; S.tabs = ev.payload.list; S.active = ev.payload.active; renderTabs(); updateFillSoon(); });
 listen('log', () => { if (!$('panel').classList.contains('hidden')) refreshLogs(); });
 listen('approval', (ev) => {
-  const { id, kind, params, message } = ev.payload;
-  const msg = has('ap_' + kind) ? t('ap_' + kind, params || {}) : message;
+  const { id, kind, message } = ev.payload;
+  const params = { ...(ev.payload.params || {}) };
+  if (kind === 'perm') params.what = t('perm_' + params.perm);
+  const msg = has('ap_' + kind) ? t('ap_' + kind, params) : message;
   const a = showAlert('approval', msg, [
     [t('allow'), '', () => invoke('resolve_approval', { id, allow: true })],
     [t('deny'), 'no', () => invoke('resolve_approval', { id, allow: false })],

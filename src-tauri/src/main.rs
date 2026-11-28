@@ -152,6 +152,27 @@ fn activate_tab(app: AppHandle, sh: Sh, id: u32) {
     tabs::activate(&app, &sh, id);
 }
 
+/// Permisos guardados de las webs (modo normal).
+#[tauri::command]
+fn site_perms(sh: Sh) -> Vec<state::SitePerm> {
+    let mut l = sh.site_perms.lock().clone();
+    l.sort_by(|a, b| (&a.origin, &a.perm).cmp(&(&b.origin, &b.perm)));
+    l
+}
+
+/// Cambia (permitir/bloquear) o quita (`allow` vacío) un permiso guardado.
+#[tauri::command]
+fn site_perm_set(sh: Sh, origin: String, perm: String, allow: Option<bool>) -> Result<(), String> {
+    if !state::PERMS.contains(&perm.as_str()) || state::origin_of(&origin).as_deref() != Some(origin.as_str()) {
+        return Err("Permiso no válido".into());
+    }
+    match allow {
+        Some(a) => sh.set_site_perm(&origin, &perm, a),
+        None => sh.remove_site_perm(&origin, Some(&perm)),
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn move_tab(sh: Sh, id: u32, to: usize) {
     tabs::move_tab(&sh, id, to);
@@ -834,6 +855,8 @@ fn main() {
             download_dismiss,
             activate_tab,
             move_tab,
+            site_perms,
+            site_perm_set,
             navigate,
             nav_action,
             set_content_rect,
@@ -924,7 +947,7 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu", "medir"].contains(&v.as_str()))
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu", "medir", "permisos"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
             }
@@ -1080,6 +1103,66 @@ fn main() {
                     }
                     tokio::time::sleep(std::time::Duration::from_secs(50)).await;
                     log::warn!("SECTEST medir fin tor_listo={}", sh2.tor.is_ready());
+                });
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=permisos): las webs piden permisos y la prueba contesta
+            // por el usuario (como si pulsara Permitir / Denegar en el aviso).
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("permisos") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    sh2.remove_site_perm("https://www.wikipedia.org", None);
+                    let pedir = |app: AppHandle, id: u32, js: &'static str| async move {
+                        let _ = tabs::eval_tab(&app, id, js.into()).await;
+                    };
+                    let leer = |app: AppHandle, id: u32| async move { tabs::eval_tab(&app, id, "String(window.__p)".into()).await.map(|v| v.to_string()).unwrap_or_default() };
+                    // Contesta la pregunta que aparezca (o dice que no ha aparecido ninguna).
+                    let contestar = |sh: Arc<Shared>, allow: bool| async move {
+                        for _ in 0..50 {
+                            if let Some(id) = sh.pending_approvals().first().copied() {
+                                sh.resolve_approval(id, allow);
+                                return true;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        }
+                        false
+                    };
+                    const NOTIF: &str = "(() => { window.__p = 'esperando'; Notification.requestPermission().then(r => window.__p = r); return 1; })()";
+                    const GEO: &str = "(() => { window.__p = 'esperando'; navigator.geolocation.getCurrentPosition(() => window.__p = 'ubicacion dada', e => window.__p = 'error ' + e.code, { timeout: 8000 }); return 1; })()";
+                    let n = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikipedia.org/".into()), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, n, 60).await;
+                    pedir(app2.clone(), n, NOTIF).await;
+                    let pregunto = contestar(sh2.clone(), true).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    log::warn!("SECTEST permisos 1 notificaciones, pregunta={pregunto}, permitido -> web: {} guardado: {:?}", leer(app2.clone(), n).await, sh2.site_perms.lock().clone());
+                    pedir(app2.clone(), n, NOTIF).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    log::warn!("SECTEST permisos 2 otra vez (sin preguntar={}): web: {}", sh2.pending_approvals().is_empty(), leer(app2.clone(), n).await);
+                    pedir(app2.clone(), n, GEO).await;
+                    let pregunto = contestar(sh2.clone(), false).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    log::warn!("SECTEST permisos 3 ubicación, pregunta={pregunto}, denegado -> web: {} guardado: {:?}", leer(app2.clone(), n).await, sh2.site_perms.lock().clone());
+                    sh2.remove_site_perm("https://www.wikipedia.org", Some("geolocation"));
+                    // El motor recuerda la respuesta mientras la página siga abierta: se recarga.
+                    let _ = tabs::navigate(&app2, &sh2, n, "https://www.wikipedia.org/?otra=1").await;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    tabs::wait_loaded(&sh2, n, 60).await;
+                    pedir(app2.clone(), n, GEO).await;
+                    let pregunto = contestar(sh2.clone(), false).await;
+                    log::warn!("SECTEST permisos 4 quitado en Ajustes: vuelve a preguntar={pregunto}");
+                    sh2.tor.ensure_started();
+                    while !sh2.tor.is_ready() {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    let p = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikipedia.org/".into()), true).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, p, 90).await;
+                    pedir(app2.clone(), p, NOTIF).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    log::warn!("SECTEST permisos 5 modo Sombra: sin preguntar={} web: {}", sh2.pending_approvals().is_empty(), leer(app2.clone(), p).await);
+                    sh2.remove_site_perm("https://www.wikipedia.org", None);
+                    log::warn!("SECTEST permisos fin");
                 });
             }
 
@@ -1318,7 +1401,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu", "medir"].contains(&v.as_str())) {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu", "medir", "permisos"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     sh2.tor.ensure_started();

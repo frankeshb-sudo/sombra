@@ -64,6 +64,13 @@ button { cursor: pointer; }
 .tab.private { color: #c9b5f5; }
 .tab.private.active, .tab.private:hover { background: var(--sombra-bg); color: var(--sombra-text); }
 .tab .pv { display: flex; flex: none; }
+#s-perms .perm-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+#s-perms .po { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#s-perms .pk { color: var(--muted); white-space: nowrap; }
+#s-perms select { width: auto; padding: 2px 6px; }
+#s-perms .rm { background: transparent; border: 0; padding: 2px; display: flex; opacity: .6; }
+#s-perms .rm:hover { opacity: 1; }
+#s-perms .rm svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; }
 .tab .fav { width: 16px; height: 16px; flex: none; object-fit: contain; }
 .tab.dragging { position: relative; z-index: 2; opacity: .9; background: var(--bar2); box-shadow: 0 2px 8px rgba(0,0,0,.35); cursor: grabbing; transition: none; }
 .tab .pv svg { width: 15px; height: 15px; stroke: #b794f6; }
