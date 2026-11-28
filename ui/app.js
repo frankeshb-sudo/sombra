@@ -316,6 +316,8 @@ function fillSettings() {
   $('s-histsearch').checked = s.history_searches;
   $('s-fpstrict').checked = s.fp_strict !== false;
   $('s-httpsonly').checked = s.https_only !== false;
+  $('s-securedns').checked = s.secure_dns !== false;
+  $('s-block3p').checked = s.block_3p_cookies !== false;
   $('s-defprivate').checked = !!s.default_private;
   const n = privacyNote(s.search);
   $('s-engine-priv').textContent = n.text;
@@ -705,6 +707,8 @@ $('s-cleanexit').onchange = (e) => save({ clean_on_exit: e.target.checked });
 $('s-histsearch').onchange = (e) => save({ history_searches: e.target.checked });
 $('s-fpstrict').onchange = (e) => save({ fp_strict: e.target.checked });
 $('s-httpsonly').onchange = (e) => save({ https_only: e.target.checked });
+$('s-securedns').onchange = (e) => save({ secure_dns: e.target.checked });
+$('s-block3p').onchange = (e) => save({ block_3p_cookies: e.target.checked });
 $('s-defprivate').onchange = (e) => save({ default_private: e.target.checked });
 $('cert-mgr').onclick = () => invoke('open_cert_manager').catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]]));
 $('cert-afdl').onclick = () => { closePage(); invoke('new_tab', { url: 'https://firmaelectronica.gob.es/Home/Descargas.html', private: false }); };

@@ -635,6 +635,23 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
         let controller = pw.controller();
         let Ok(core) = controller.CoreWebView2() else { return };
         let mut token = 0i64;
+        // Cookies de terceros: WebView2 no tiene un ajuste para bloquearlas todas; se usa su
+        // prevención de seguimiento estricta (cookies y almacenamiento de los rastreadores
+        // conocidos bloqueados en todas las webs). Vale para todo el perfil del modo.
+        {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                ICoreWebView2Profile3, ICoreWebView2_13, COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_BALANCED,
+                COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_STRICT,
+            };
+            let level = if sh.settings.lock().block_3p_cookies {
+                COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_STRICT
+            } else {
+                COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_BALANCED
+            };
+            if let Ok(p) = core.cast::<ICoreWebView2_13>().and_then(|c| c.Profile()).and_then(|p| p.cast::<ICoreWebView2Profile3>()) {
+                let _ = p.SetPreferredTrackingPreventionLevel(level);
+            }
+        }
         // Atajos de Sombra con el foco dentro de la página.
         {
             let sh2 = sh.clone();
@@ -1227,6 +1244,15 @@ fn linux_hooks(wv: webkit2gtk::WebView, sh: Arc<Shared>, app: AppHandle, id: u32
     use gtk::glib::Propagation;
     use gtk::prelude::*;
     use webkit2gtk::WebViewExt;
+    // Cookies de terceros: ninguna web incrustada en otra (rastreadores, botones de redes
+    // sociales...) puede guardar ni leer las suyas. Vale para todo el perfil del modo.
+    {
+        use webkit2gtk::{CookieAcceptPolicy, CookieManagerExt, WebContextExt, WebsiteDataManagerExt};
+        let policy = if sh.settings.lock().block_3p_cookies { CookieAcceptPolicy::NoThirdParty } else { CookieAcceptPolicy::Always };
+        if let Some(cm) = wv.context().and_then(|c| c.website_data_manager()).and_then(|m| m.cookie_manager()) {
+            cm.set_accept_policy(policy);
+        }
+    }
     linux_downloads(&wv, &sh, tab_private(&sh, id));
     // Lo que el motor no sabe mostrar, o lo que la web manda como archivo (con nombre propio,
     // "Content-Disposition"), se descarga. Sin esto WebKit lo ignora y no pasa nada.
@@ -1375,6 +1401,26 @@ pub async fn eval_label(app: &AppHandle, label: &str, js: String) -> anyhow::Res
 
 pub async fn eval_tab(app: &AppHandle, id: u32, js: String) -> anyhow::Result<serde_json::Value> {
     eval_label(app, &label(id), js).await
+}
+
+/// Dominios con cookies guardadas en el perfil de una pestaña (solo para las pruebas, Linux).
+#[cfg(all(debug_assertions, target_os = "linux"))]
+pub async fn cookie_domains(app: &AppHandle, id: u32) -> Vec<String> {
+    let Some(wv) = app.get_webview(&label(id)) else { return vec![] };
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<String>>();
+    let tx = std::sync::Mutex::new(Some(tx));
+    let _ = wv.with_webview(move |pw| {
+        use webkit2gtk::{WebContextExt, WebViewExt, WebsiteDataManagerExt, WebsiteDataTypes};
+        let Some(m) = pw.inner().context().and_then(|c| c.website_data_manager()) else { return };
+        let tx = tx.lock().unwrap().take();
+        m.fetch(WebsiteDataTypes::COOKIES, None::<&gtk::gio::Cancellable>, move |r| {
+            let l = r.map(|v| v.iter().filter_map(|d| d.name().map(|n| n.to_string())).collect()).unwrap_or_default();
+            if let Some(tx) = tx {
+                let _ = tx.send(l);
+            }
+        });
+    });
+    tokio::time::timeout(Duration::from_secs(10), rx).await.ok().and_then(|r| r.ok()).unwrap_or_default()
 }
 
 /// Coloca la pestaña activa en la zona de contenido y oculta las demás (pestañas dormidas).

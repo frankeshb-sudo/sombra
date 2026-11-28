@@ -225,10 +225,24 @@ async fn direct(mut s: TcpStream, sh: &Shared, host: &str, port: u16, local_ok: 
 /// colgada) y cada dirección con su tiempo máximo. Nunca a la red local salvo `local_ok`.
 pub async fn connect_direct(host: &str, port: u16, local_ok: bool) -> Option<TcpStream> {
     use std::time::Duration;
-    let mut addrs: Vec<std::net::SocketAddr> = match tokio::time::timeout(Duration::from_secs(10), tokio::net::lookup_host((host, port))).await {
-        Ok(Ok(a)) => a.filter(|a| local_ok || !is_local(&a.ip().to_string())).collect(),
-        _ => return None,
+    use std::net::SocketAddr;
+    let bare = host.trim_matches(|c| c == '[' || c == ']');
+    let all: Vec<SocketAddr> = if let Ok(ip) = bare.parse::<IpAddr>() {
+        vec![SocketAddr::new(ip, port)]
+    } else if crate::doh::ENABLED.load(Ordering::Relaxed) && !is_local(host) {
+        // DNS seguro: si no responde, la web no se abre (nunca se pregunta en claro). Los
+        // nombres de tu red (router, impresora...) siguen usando el DNS del sistema.
+        match tokio::time::timeout(Duration::from_secs(10), crate::doh::resolve(host)).await {
+            Ok(Some(ips)) => ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect(),
+            _ => return None,
+        }
+    } else {
+        match tokio::time::timeout(Duration::from_secs(10), tokio::net::lookup_host((host, port))).await {
+            Ok(Ok(a)) => a.collect(),
+            _ => return None,
+        }
     };
+    let mut addrs: Vec<SocketAddr> = all.into_iter().filter(|a| local_ok || !is_local(&a.ip().to_string())).collect();
     addrs.sort_by_key(|a| a.is_ipv6());
     for a in addrs.iter().take(4) {
         if let Ok(Ok(st)) = tokio::time::timeout(Duration::from_secs(6), TcpStream::connect(a)).await {

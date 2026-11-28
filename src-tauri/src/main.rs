@@ -9,6 +9,7 @@
 
 mod blocker;
 mod control;
+mod doh;
 mod downloads;
 mod proxy;
 mod state;
@@ -269,6 +270,14 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         if let Some(v) = patch.get("default_private").and_then(|v| v.as_bool()) {
             s.default_private = v;
         }
+        if let Some(v) = patch.get("secure_dns").and_then(|v| v.as_bool()) {
+            s.secure_dns = v;
+            doh::ENABLED.store(v, std::sync::atomic::Ordering::Relaxed);
+            doh::clear();
+        }
+        if let Some(v) = patch.get("block_3p_cookies").and_then(|v| v.as_bool()) {
+            s.block_3p_cookies = v;
+        }
         if let Some(v) = patch.get("security_level").and_then(|v| v.as_u64()) {
             s.security_level = v.min(2) as u8;
         }
@@ -416,6 +425,7 @@ async fn clean(app: AppHandle, sh: Sh<'_>, opts: Value) -> Result<Value, String>
     if on("history") {
         sh.clear_history();
         sh.tabs.lock().closed.clear();
+        doh::clear();
         done.push("history");
     }
     if on("cache") {
@@ -442,6 +452,7 @@ async fn clean(app: AppHandle, sh: Sh<'_>, opts: Value) -> Result<Value, String>
         }
         // Cerrar todas para borrarlas: tampoco se pueden reabrir.
         sh.tabs.lock().closed.clear();
+        doh::clear();
         done.push("tabs");
     }
     if on("stats") {
@@ -906,7 +917,7 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas"].contains(&v.as_str()))
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
             }
@@ -943,6 +954,46 @@ fn main() {
                     downloads::dismiss(&sh2, None);
                     log::warn!("SECTEST descargas 5 tras quitar terminadas: {}", ver(&sh2));
                     log::warn!("SECTEST descargas fin");
+                });
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=cookies): DNS seguro y cookies de terceros (modo normal).
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("cookies") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let txt = |app: AppHandle, id: u32| async move {
+                        tabs::eval_tab(&app, id, "document.body ? document.body.innerText.slice(0, 300) : ''".into()).await.map(|v| v.to_string()).unwrap_or_else(|e| format!("error {e}"))
+                    };
+                    // SOMBRA_3P=off: la misma prueba sin el bloqueo, para comparar.
+                    if std::env::var("SOMBRA_3P").as_deref() == Ok("off") {
+                        sh2.settings.lock().block_3p_cookies = false;
+                    }
+                    let a = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikipedia.org/".into()), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, a, 60).await;
+                    let bloqueo = sh2.settings.lock().block_3p_cookies;
+                    let pagina: String = txt(app2.clone(), a).await.chars().take(60).collect();
+                    log::warn!(
+                        "SECTEST cookies 1 bloqueo={} dns seguro={} en memoria={} pagina: {}",
+                        bloqueo,
+                        doh::ENABLED.load(std::sync::atomic::Ordering::Relaxed),
+                        doh::cached("www.wikipedia.org"),
+                        pagina
+                    );
+                    // Webs de otros dominios, incrustadas, intentan guardar cookies (las de
+                    // Wikimedia ponen siempre "WMF-Last-Access" y "GeoIP").
+                    #[cfg(target_os = "linux")]
+                    {
+                        log::warn!("SECTEST cookies 2 antes: {:?}", tabs::cookie_domains(&app2, a).await);
+                        let _ = tabs::eval_tab(&app2, a, "(() => { for (const u of ['https://www.wikidata.org/wiki/Special:BlankPage', 'https://commons.wikimedia.org/wiki/Special:BlankPage']) { const f = document.createElement('iframe'); f.src = u; document.body.appendChild(f); } return 'ok'; })()".into()).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(12)).await;
+                        log::warn!("SECTEST cookies 3 tras los iframes (con bloqueo no deben salir wikidata ni wikimedia): {:?}", tabs::cookie_domains(&app2, a).await);
+                        let _ = tabs::navigate(&app2, &sh2, a, "https://www.wikidata.org/wiki/Special:BlankPage").await;
+                        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                        log::warn!("SECTEST cookies 4 wikidata abierta directamente (debe salir): {:?}", tabs::cookie_domains(&app2, a).await);
+                    }
+                    log::warn!("SECTEST cookies fin");
                 });
             }
 
@@ -1138,7 +1189,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas"].contains(&v.as_str())) {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {

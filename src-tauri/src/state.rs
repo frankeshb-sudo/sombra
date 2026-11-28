@@ -107,6 +107,10 @@ pub struct Settings {
     pub https_only: bool,
     /// Las pestañas nuevas se abren en modo Sombra (si no, en modo normal).
     pub default_private: bool,
+    /// Modo normal: DNS seguro (cifrado, ver doh.rs) en vez del DNS del sistema.
+    pub secure_dns: bool,
+    /// Bloquear las cookies de terceros (Linux) / prevención de seguimiento estricta (Windows).
+    pub block_3p_cookies: bool,
 }
 
 /// DuckDuckGo por su dirección dentro de la red Tor: ni el buscador ni ningún
@@ -154,6 +158,8 @@ impl Default for Settings {
             js_allow: Vec::new(),
             https_only: true,
             default_private: false,
+            secure_dns: true,
+            block_3p_cookies: true,
         }
     }
 }
@@ -210,6 +216,7 @@ pub fn now() -> u64 {
 impl Shared {
     pub fn new(data_dir: PathBuf) -> Arc<Self> {
         let settings: Settings = read_json(&data_dir.join("settings.json")).unwrap_or_default();
+        crate::doh::ENABLED.store(settings.secure_dns, std::sync::atomic::Ordering::Relaxed);
         let bookmarks: Vec<Bookmark> = read_json(&data_dir.join("bookmarks.json")).unwrap_or_default();
         let history: Vec<HistoryEntry> = if settings.history_mode == "save" {
             read_json(&data_dir.join("history.json")).unwrap_or_default()
