@@ -314,6 +314,7 @@ function fillSettings() {
   $('s-bmbar').checked = s.show_bookmarks;
   $('s-cleanexit').checked = s.clean_on_exit;
   $('s-histsearch').checked = s.history_searches;
+  $('s-restore').checked = s.restore_session !== false;
   $('s-fpstrict').checked = s.fp_strict !== false;
   $('s-httpsonly').checked = s.https_only !== false;
   $('s-securedns').checked = s.secure_dns !== false;
@@ -705,6 +706,7 @@ $('s-compact').onchange = (e) => save({ compact: e.target.checked });
 $('s-bmbar').onchange = (e) => save({ show_bookmarks: e.target.checked });
 $('s-cleanexit').onchange = (e) => save({ clean_on_exit: e.target.checked });
 $('s-histsearch').onchange = (e) => save({ history_searches: e.target.checked });
+$('s-restore').onchange = (e) => save({ restore_session: e.target.checked });
 $('s-fpstrict').onchange = (e) => save({ fp_strict: e.target.checked });
 $('s-httpsonly').onchange = (e) => save({ https_only: e.target.checked });
 $('s-securedns').onchange = (e) => save({ secure_dns: e.target.checked });

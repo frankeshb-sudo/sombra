@@ -945,6 +945,7 @@ fn allowed_scheme(u: &url::Url) -> bool {
 }
 
 pub fn emit_tabs(sh: &Shared) {
+    sh.session_dirty.store(true, Ordering::Relaxed);
     let t = sh.tabs.lock();
     sh.emit("tabs", serde_json::json!({ "list": t.list, "active": t.active }));
 }
@@ -991,6 +992,43 @@ pub async fn new_tab_mode(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>
     layout(app, sh);
     emit_tabs(sh);
     Ok(id)
+}
+
+/// Pone las pestañas de la sesión anterior (dormidas: sin cargar hasta que se abren).
+/// Devuelve la que estaba activa.
+pub fn restore(sh: &Shared, s: crate::state::Session) -> Option<u32> {
+    if s.tabs.is_empty() {
+        return None;
+    }
+    let active = {
+        let mut t = sh.tabs.lock();
+        let mut ids = Vec::new();
+        for st in s.tabs {
+            let id = t.next;
+            t.next += 1;
+            let title = if st.title.trim().is_empty() { st.url.clone() } else { st.title };
+            t.list.push(TabInfo { id, url: st.url, title, loading: false, has_view: false, https_warn: false, private: false });
+            ids.push(id);
+        }
+        t.active = s.active.and_then(|i| ids.get(i).copied()).or(ids.last().copied());
+        t.active
+    };
+    emit_tabs(sh);
+    active
+}
+
+/// Carga una pestaña dormida (de la sesión anterior) al abrirla.
+pub async fn wake(app: &AppHandle, sh: &Arc<Shared>, id: u32) {
+    let url = {
+        let t = sh.tabs.lock();
+        match t.list.iter().find(|x| x.id == id) {
+            Some(x) if !x.has_view && !x.loading && !x.https_warn && !x.url.is_empty() => x.url.clone(),
+            _ => return,
+        }
+    };
+    if let Err(e) = navigate(app, sh, id, &url).await {
+        log::warn!("no se pudo abrir la pestaña recuperada: {e}");
+    }
 }
 
 /// Navega una pestaña a una URL. Crea la vista web si todavía no existe.
@@ -1473,6 +1511,9 @@ pub fn activate(app: &AppHandle, sh: &Arc<Shared>, id: u32) {
     sh.stats.page_blocked.store(0, Ordering::Relaxed);
     layout(app, sh);
     emit_tabs(sh);
+    // Pestaña de la sesión anterior que aún no se había abierto: se carga ahora.
+    let (app2, sh2) = (app.clone(), sh.clone());
+    tauri::async_runtime::spawn(async move { wake(&app2, &sh2, id).await });
 }
 
 pub async fn close(app: &AppHandle, sh: &Arc<Shared>, id: u32) -> anyhow::Result<()> {
@@ -1488,8 +1529,9 @@ pub async fn close(app: &AppHandle, sh: &Arc<Shared>, id: u32) -> anyhow::Result
         let pos = t.list.iter().position(|x| x.id == id);
         if let Some(p) = pos {
             let old = t.list.remove(p);
-            // Solo las que tenían una web abierta (no las de inicio ni los avisos).
-            if old.has_view && (old.url.starts_with("https://") || old.url.starts_with("http://")) {
+            // Solo las que tenían una web (no las de inicio ni los avisos), abierta o aún dormida
+            // (recuperada de la sesión anterior).
+            if (old.has_view || !old.https_warn) && (old.url.starts_with("https://") || old.url.starts_with("http://")) {
                 t.closed.push(crate::state::ClosedTab { url: old.url, title: old.title, private: old.private, pos: p });
                 let n = t.closed.len();
                 if n > crate::state::MAX_CLOSED {

@@ -23,6 +23,8 @@ I18N.en = {
   historyMode: 'History', histOff: 'Save nothing (maximum privacy)', histSession: 'Only while Sombra is open',
   histSave: 'Save on this device', histSaveNote: 'If saved, it stays in a file on your device. In version 0.2 it will be encrypted with your master password.',
   histNormalOnly: "History is only kept for normal mode: what you visit in Sombra mode is never saved.",
+  restoreSession: "Restore tabs when Sombra opens",
+  restoreSessionNote: "The normal tabs you had open when closing come back; each one loads when you open it. Sombra mode tabs are never saved.",
   cleanOnExit: 'Clear history when Sombra closes', viewHistory: 'View history', histSearchPh: 'Search history',
   histEmpty: 'History is empty.', clearAllHistory: 'Clear all', remove: 'Remove',
   cleaner: 'Cleaner', cleanNow: 'Clean now', cHistory: 'History', cCache: 'Cache and cookies of this session',

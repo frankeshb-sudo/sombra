@@ -278,6 +278,9 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         if let Some(v) = patch.get("block_3p_cookies").and_then(|v| v.as_bool()) {
             s.block_3p_cookies = v;
         }
+        if let Some(v) = patch.get("restore_session").and_then(|v| v.as_bool()) {
+            s.restore_session = v;
+        }
         if let Some(v) = patch.get("security_level").and_then(|v| v.as_u64()) {
             s.security_level = v.min(2) as u8;
         }
@@ -297,6 +300,8 @@ fn set_settings(sh: Sh, patch: Value) -> Result<Value, String> {
         _ => {}
     }
     sh.save_settings();
+    // La sesión puede haber dejado de quererse (o volver a quererse): se revisa enseguida.
+    sh.session_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     if let Some(app) = sh.app.get() {
         tabs::layout(app, &sh);
         refresh_js(app, sh.inner());
@@ -424,6 +429,7 @@ async fn clean(app: AppHandle, sh: Sh<'_>, opts: Value) -> Result<Value, String>
     let mut done = Vec::new();
     if on("history") {
         sh.clear_history();
+        sh.clear_session();
         sh.tabs.lock().closed.clear();
         doh::clear();
         done.push("history");
@@ -917,7 +923,7 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies"].contains(&v.as_str()))
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
             }
@@ -954,6 +960,44 @@ fn main() {
                     downloads::dismiss(&sh2, None);
                     log::warn!("SECTEST descargas 5 tras quitar terminadas: {}", ver(&sh2));
                     log::warn!("SECTEST descargas fin");
+                });
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=sesion): recuperar las pestañas. SOMBRA_FASE=1 abre
+            // pestañas; SOMBRA_FASE=2 (siguiente arranque) mira qué ha vuelto.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("sesion") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    let lista = |sh: &Arc<Shared>| {
+                        let t = sh.tabs.lock();
+                        let l: Vec<String> = t.list.iter().map(|x| format!("{}{}{}:{}", if Some(x.id) == t.active { "*" } else { "" }, if x.private { "S" } else { "N" }, if x.has_view { "+" } else { "z" }, x.url)).collect();
+                        format!("{l:?}")
+                    };
+                    if std::env::var("SOMBRA_FASE").as_deref() == Ok("1") {
+                        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                        let a = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikipedia.org/".into()), false).await.unwrap_or(0);
+                        tabs::wait_loaded(&sh2, a, 60).await;
+                        let b = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikidata.org/wiki/Special:BlankPage".into()), false).await.unwrap_or(0);
+                        tabs::wait_loaded(&sh2, b, 60).await;
+                        let _ = tabs::new_tab_mode(&app2, &sh2, Some("https://check.torproject.org/".into()), true).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        tabs::activate(&app2, &sh2, a);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        log::warn!("SECTEST sesion 1 abiertas: {}", lista(&sh2));
+                        log::warn!("SECTEST sesion 1 guardada: {}", std::fs::read_to_string(sh2.data_dir.join("session.json")).unwrap_or_default().replace('\n', " "));
+                    } else {
+                        log::warn!("SECTEST sesion 2 al arrancar: {}", lista(&sh2));
+                        tokio::time::sleep(std::time::Duration::from_secs(12)).await;
+                        log::warn!("SECTEST sesion 2 tras cargar la activa: {}", lista(&sh2));
+                        let dormida = sh2.tabs.lock().list.iter().find(|x| !x.has_view).map(|x| x.id);
+                        if let Some(d) = dormida {
+                            tabs::activate(&app2, &sh2, d);
+                            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                        }
+                        log::warn!("SECTEST sesion 3 tras abrir la dormida: {}", lista(&sh2));
+                    }
+                    log::warn!("SECTEST sesion fin");
                 });
             }
 
@@ -1189,7 +1233,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies"].contains(&v.as_str())) {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {
@@ -1392,6 +1436,38 @@ fn main() {
                 fp_key,
                 fp_seed: rand::random(),
             });
+            // 5) Sesión anterior: las pestañas normales que había al cerrar. Solo se carga la
+            // activa, cuando la interfaz ya ha dicho dónde va la web; las demás, al abrirlas.
+            #[cfg(debug_assertions)]
+            let skip_session = ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok()) || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| v != "sesion");
+            #[cfg(not(debug_assertions))]
+            let skip_session = false;
+            let session = if skip_session { Default::default() } else { sh.take_session() };
+            if let Some(active) = tabs::restore(&sh, session) {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    for _ in 0..150 {
+                        if sh2.tabs.lock().rect.2 > 1.0 {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                    tabs::wake(&app2, &sh2, active).await;
+                });
+            }
+            // La sesión se guarda poco después de cada cambio de pestañas (y al cerrar).
+            {
+                let sh2 = sh.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        if sh2.session_dirty.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                            let sh3 = sh2.clone();
+                            let _ = tauri::async_runtime::spawn_blocking(move || sh3.save_session()).await;
+                        }
+                    }
+                });
+            }
             // En Linux la ventana no lleva la barra del sistema (en Ubuntu/WSL solo traía la ×):
             // Sombra pone − □ × juntos a la derecha de las pestañas. En Windows, la del sistema.
             let window = tauri::window::WindowBuilder::new(app, "main")
@@ -1455,6 +1531,8 @@ fn main() {
                     } else {
                         sh.save_history_pending();
                     }
+                    // Lo último: las pestañas tal como quedaron (o nada, si no se quiere).
+                    sh.save_session();
                 }
                 let dir = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("Sombra").join("webview");
                 let _ = std::fs::remove_dir_all(dir);

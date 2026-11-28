@@ -23,6 +23,8 @@ I18N.pl = {
   historyMode: 'Historia', histOff: 'Nie zapisuj niczego (maksymalna prywatność)', histSession: 'Tylko gdy Sombra jest otwarta',
   histSave: 'Zapisuj na tym urządzeniu', histSaveNote: 'Zapisana zostaje w pliku na twoim urządzeniu. W wersji 0.2 będzie szyfrowana hasłem głównym.',
   histNormalOnly: "Historia dotyczy tylko trybu normalnego: to, co odwiedzasz w trybie Sombra, nigdy nie jest zapisywane.",
+  restoreSession: "Przywracaj karty po otwarciu Sombry",
+  restoreSessionNote: "Wracają zwykłe karty otwarte przy zamykaniu; każda wczytuje się, gdy ją otworzysz. Karty trybu Sombra nigdy nie są zapisywane.",
   cleanOnExit: 'Czyść historię przy zamykaniu', viewHistory: 'Pokaż historię', histSearchPh: 'Szukaj w historii',
   histEmpty: 'Historia jest pusta.', clearAllHistory: 'Wyczyść wszystko', remove: 'Usuń',
   cleaner: 'Czyszczenie', cleanNow: 'Wyczyść teraz', cHistory: 'Historia', cCache: 'Pamięć podręczna i ciasteczka tej sesji',

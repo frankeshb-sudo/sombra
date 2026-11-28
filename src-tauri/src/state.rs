@@ -62,6 +62,37 @@ pub struct ClosedTab {
 
 pub const MAX_CLOSED: usize = 25;
 
+/// Pestañas normales abiertas al cerrar Sombra (session.json). Las del modo Sombra nunca.
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]
+#[serde(default)]
+pub struct Session {
+    pub tabs: Vec<SessionTab>,
+    /// Posición de la pestaña activa en `tabs`.
+    pub active: Option<usize>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]
+#[serde(default)]
+pub struct SessionTab {
+    pub url: String,
+    pub title: String,
+}
+
+pub const MAX_SESSION: usize = 100;
+
+/// Sesión a partir de la lista de pestañas: solo las normales con una web abierta.
+pub fn session_of(list: &[TabInfo], active: Option<u32>) -> Session {
+    let normal: Vec<&TabInfo> = list
+        .iter()
+        .filter(|x| !x.private && (x.url.starts_with("https://") || x.url.starts_with("http://")))
+        .take(MAX_SESSION)
+        .collect();
+    Session {
+        active: active.and_then(|a| normal.iter().position(|x| x.id == a)),
+        tabs: normal.iter().map(|x| SessionTab { url: x.url.clone(), title: x.title.clone() }).collect(),
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Bookmark {
     pub url: String,
@@ -111,6 +142,8 @@ pub struct Settings {
     pub secure_dns: bool,
     /// Bloquear las cookies de terceros (Linux) / prevención de seguimiento estricta (Windows).
     pub block_3p_cookies: bool,
+    /// Al abrir Sombra, recuperar las pestañas normales que había al cerrar.
+    pub restore_session: bool,
     /// Versión de los ajustes (para cambios de valores por defecto en ajustes ya guardados).
     /// Falta en los archivos antiguos: entonces vale 0.
     #[serde(default)]
@@ -181,6 +214,7 @@ impl Default for Settings {
             default_private: false,
             secure_dns: true,
             block_3p_cookies: true,
+            restore_session: true,
             version: SETTINGS_VERSION,
         }
     }
@@ -234,6 +268,8 @@ pub struct Shared {
     /// Guardar y borrar el historial nunca a la vez: un guardado en marcha no puede volver a
     /// escribir lo que se acaba de borrar.
     history_io: Mutex<()>,
+    /// Las pestañas han cambiado y la sesión está por guardar (ver save_session).
+    pub session_dirty: AtomicBool,
 }
 
 pub fn now() -> u64 {
@@ -274,6 +310,7 @@ impl Shared {
             afirma: Mutex::new(None),
             history_dirty: AtomicBool::new(false),
             history_io: Mutex::new(()),
+            session_dirty: AtomicBool::new(false),
         });
         if migrated {
             sh.save_settings();
@@ -459,6 +496,48 @@ impl Shared {
             let h = self.history.lock().clone();
             write_json(&self.data_dir.join("history.json"), &h);
         }
+    }
+
+    // ---------- Sesión (pestañas al cerrar) ----------
+
+    /// Se guarda la sesión si está activado y el usuario no ha pedido "no guardar nada" ni
+    /// "borrar al cerrar" (sería guardar en otro archivo lo que quiere que no quede).
+    fn session_wanted(&self) -> bool {
+        let s = self.settings.lock();
+        s.restore_session && s.history_mode != "off" && !s.clean_on_exit
+    }
+
+    /// Guarda las pestañas normales abiertas (o borra el archivo si no se quiere guardar).
+    pub fn save_session(&self) {
+        let _io = self.history_io.lock();
+        let p = self.data_dir.join("session.json");
+        if !self.session_wanted() {
+            let _ = std::fs::remove_file(p);
+            return;
+        }
+        let s = {
+            let t = self.tabs.lock();
+            session_of(&t.list, t.active)
+        };
+        write_json(&p, &s);
+    }
+
+    /// La sesión guardada al cerrar la última vez (vacía si no hay o no se quiere).
+    pub fn take_session(&self) -> Session {
+        let p = self.data_dir.join("session.json");
+        if !self.session_wanted() {
+            let _ = std::fs::remove_file(p);
+            return Session::default();
+        }
+        let mut s: Session = read_json(&p).unwrap_or_default();
+        s.tabs.retain(|t| t.url.starts_with("https://") || t.url.starts_with("http://"));
+        s.tabs.truncate(MAX_SESSION);
+        s
+    }
+
+    pub fn clear_session(&self) {
+        let _io = self.history_io.lock();
+        let _ = std::fs::remove_file(self.data_dir.join("session.json"));
     }
 
     pub fn clear_history(&self) {
@@ -655,6 +734,19 @@ pub fn suggestions(history: &[HistoryEntry], bookmarks: &[Bookmark], query: &str
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn sesion_solo_normales() {
+        let tab = |id, url: &str, private| super::TabInfo { id, url: url.into(), title: format!("t{id}"), loading: false, has_view: true, https_warn: false, private };
+        let list = vec![tab(1, "https://a.es/", false), tab(2, "https://secreto.onion/", true), tab(3, "", false), tab(4, "http://b.es/x", false)];
+        let s = super::session_of(&list, Some(4));
+        assert_eq!(s.tabs.iter().map(|t| t.url.as_str()).collect::<Vec<_>>(), ["https://a.es/", "http://b.es/x"]);
+        assert_eq!(s.active, Some(1));
+        // La activa es del modo Sombra: no se guarda cuál era.
+        assert_eq!(super::session_of(&list, Some(2)).active, None);
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<super::Session>(&json).unwrap(), s);
+    }
 
     #[test]
     fn ajustes_antiguos() {
