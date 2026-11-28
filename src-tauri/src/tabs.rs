@@ -652,6 +652,41 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
                 let _ = p.SetPreferredTrackingPreventionLevel(level);
             }
         }
+        // Icono de la web (solo pestañas normales): el que ya ha descargado el motor, sin
+        // ninguna petición más.
+        if !private {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_15, COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG};
+            use webview2_com::{FaviconChangedEventHandler, GetFaviconCompletedHandler};
+            if let Ok(c15) = core.cast::<ICoreWebView2_15>() {
+                let (sh2, c15b) = (sh.clone(), c15.clone());
+                let _ = c15.add_FaviconChanged(
+                    &FaviconChangedEventHandler::create(Box::new(move |_, _| {
+                        let sh3 = sh2.clone();
+                        let _ = c15b.GetFavicon(
+                            COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG,
+                            &GetFaviconCompletedHandler::create(Box::new(move |hr, stream| {
+                                let mut png = Vec::new();
+                                if let (Ok(()), Some(st)) = (hr, stream) {
+                                    let mut chunk = [0u8; 8192];
+                                    loop {
+                                        let mut n = 0u32;
+                                        let r = st.Read(chunk.as_mut_ptr() as _, chunk.len() as u32, Some(&mut n));
+                                        if r.is_err() || n == 0 || png.len() > MAX_FAVICON {
+                                            break;
+                                        }
+                                        png.extend_from_slice(&chunk[..n as usize]);
+                                    }
+                                }
+                                set_favicon(&sh3, id, Some(&png));
+                                Ok(())
+                            })),
+                        );
+                        Ok(())
+                    })),
+                    &mut token,
+                );
+            }
+        }
         // Atajos de Sombra con el foco dentro de la página.
         {
             let sh2 = sh.clone();
@@ -808,6 +843,19 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
 
 /// Descargas en Linux: el contexto web (uno por modo) avisa de cada una. Se engancha una sola
 /// vez por contexto (se marca con un dato propio).
+#[cfg(target_os = "linux")]
+fn surface_png(s: &gtk::cairo::Surface) -> Option<Vec<u8>> {
+    let img = gtk::cairo::ImageSurface::try_from(s.clone()).ok()?;
+    let (w, h) = (img.width(), img.height());
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let pb = gtk::gdk::pixbuf_get_from_surface(&img, 0, 0, w, h)?;
+    // 32 px bastan (se ve a 16 px; 32 para pantallas de alta densidad).
+    let pb = if w > 32 || h > 32 { pb.scale_simple(32, 32, gtk::gdk_pixbuf::InterpType::Bilinear)? } else { pb };
+    pb.save_to_bufferv("png", &[]).ok()
+}
+
 #[cfg(target_os = "linux")]
 fn linux_downloads(wv: &webkit2gtk::WebView, sh: &Arc<Shared>, private: bool) {
     use crate::downloads as dl;
@@ -982,7 +1030,7 @@ pub async fn new_tab_mode(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>
         let mut t = sh.tabs.lock();
         let id = t.next;
         t.next += 1;
-        t.list.push(TabInfo { id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false, private });
+        t.list.push(TabInfo { id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false, private, favicon: String::new() });
         t.active = Some(id);
         id
     };
@@ -992,6 +1040,57 @@ pub async fn new_tab_mode(app: &AppHandle, sh: &Arc<Shared>, url: Option<String>
     layout(app, sh);
     emit_tabs(sh);
     Ok(id)
+}
+
+fn host_of(u: &str) -> String {
+    url::Url::parse(u).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default()
+}
+
+/// Icono más grande que esto (en PNG) no se guarda: los de verdad ocupan 1-5 KB.
+const MAX_FAVICON: usize = 24 * 1024;
+
+/// PNG -> "data:image/png;base64,...", que la interfaz pinta tal cual.
+fn png_data_url(png: &[u8]) -> String {
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    if png.is_empty() || png.len() > MAX_FAVICON || !png.starts_with(b"\x89PNG") {
+        return String::new();
+    }
+    let mut out = String::with_capacity(22 + png.len().div_ceil(3) * 4);
+    out.push_str("data:image/png;base64,");
+    for c in png.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for k in 0..4 {
+            if k <= c.len() {
+                out.push(B64[(n >> (18 - 6 * k) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// El icono de una pestaña normal ha cambiado.
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+fn set_favicon(sh: &Shared, id: u32, png: Option<&[u8]>) {
+    let url = png.map(png_data_url).unwrap_or_default();
+    update_tab(sh, id, |t| {
+        if !t.private {
+            t.favicon = url;
+        }
+    });
+}
+
+/// Mueve una pestaña a la posición `to` (arrastrándola en la barra).
+pub fn move_tab(sh: &Shared, id: u32, to: usize) {
+    {
+        let mut t = sh.tabs.lock();
+        let Some(from) = t.list.iter().position(|x| x.id == id) else { return };
+        let tab = t.list.remove(from);
+        let to = to.min(t.list.len());
+        t.list.insert(to, tab);
+    }
+    emit_tabs(sh);
 }
 
 /// Pone las pestañas de la sesión anterior (dormidas: sin cargar hasta que se abren).
@@ -1007,7 +1106,7 @@ pub fn restore(sh: &Shared, s: crate::state::Session) -> Option<u32> {
             let id = t.next;
             t.next += 1;
             let title = if st.title.trim().is_empty() { st.url.clone() } else { st.title };
-            t.list.push(TabInfo { id, url: st.url, title, loading: false, has_view: false, https_warn: false, private: false });
+            t.list.push(TabInfo { id, url: st.url, title, loading: false, has_view: false, https_warn: false, private: false, favicon: String::new() });
             ids.push(id);
         }
         t.active = s.active.and_then(|i| ids.get(i).copied()).or(ids.last().copied());
@@ -1185,6 +1284,10 @@ fn create_view(app: &AppHandle, sh: &Arc<Shared>, id: u32, url: url::Url) -> any
                     }
                     update_tab(&sh_load, id, |t| {
                         t.loading = true;
+                        // Otra web: su icono llegará después (el de la anterior ya no vale).
+                        if host_of(&t.url) != host_of(url.as_str()) {
+                            t.favicon.clear();
+                        }
                         t.url = url;
                     });
                 }
@@ -1292,6 +1395,23 @@ fn linux_hooks(wv: webkit2gtk::WebView, sh: Arc<Shared>, app: AppHandle, id: u32
         }
     }
     linux_downloads(&wv, &sh, tab_private(&sh, id));
+    // Icono de la web (solo pestañas normales). WebKit los guarda en una carpeta que se borra
+    // al cerrar Sombra (la del perfil temporal): no queda en el disco qué webs has visitado.
+    if !tab_private(&sh, id) {
+        use webkit2gtk::WebContextExt;
+        if let (Some(ctx), Some(eng)) = (wv.context(), ENGINE.get()) {
+            if ctx.favicon_database_directory().is_none() {
+                let d = eng.data_dir.join("iconos-normal");
+                let _ = std::fs::create_dir_all(&d);
+                ctx.set_favicon_database_directory(Some(d.to_string_lossy().as_ref()));
+            }
+        }
+        let sh2 = sh.clone();
+        wv.connect_favicon_notify(move |w| {
+            let png = w.favicon().and_then(|s| surface_png(&s));
+            set_favicon(&sh2, id, png.as_deref());
+        });
+    }
     // Lo que el motor no sabe mostrar, o lo que la web manda como archivo (con nombre propio,
     // "Content-Disposition"), se descarga. Sin esto WebKit lo ignora y no pasa nada.
     {
@@ -1615,7 +1735,7 @@ pub fn go_home(app: &AppHandle, sh: &Shared, id: u32) -> Option<u32> {
         let mut t = sh.tabs.lock();
         new_id = t.next;
         let tab = t.list.iter_mut().find(|x| x.id == id)?;
-        *tab = TabInfo { id: new_id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false, private: tab.private };
+        *tab = TabInfo { id: new_id, url: String::new(), title: "Nueva pestaña".into(), loading: false, has_view: false, https_warn: false, private: tab.private, favicon: String::new() };
         t.next += 1;
         if t.active == Some(id) {
             t.active = Some(new_id);
@@ -1640,5 +1760,16 @@ pub async fn wait_loaded(sh: &Shared, id: u32, secs: u64) {
             return;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn icono_en_base64() {
+        assert_eq!(super::png_data_url(b"\x89PNG"), "data:image/png;base64,iVBORw==");
+        assert_eq!(super::png_data_url(b"\x89PNGab"), "data:image/png;base64,iVBOR2Fi");
+        assert_eq!(super::png_data_url(b"GIF89a"), "");
+        assert_eq!(super::png_data_url(&vec![0x89; 30_000]), "");
     }
 }

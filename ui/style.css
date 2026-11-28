@@ -64,6 +64,8 @@ button { cursor: pointer; }
 .tab.private { color: #c9b5f5; }
 .tab.private.active, .tab.private:hover { background: var(--sombra-bg); color: var(--sombra-text); }
 .tab .pv { display: flex; flex: none; }
+.tab .fav { width: 16px; height: 16px; flex: none; object-fit: contain; }
+.tab.dragging { position: relative; z-index: 2; opacity: .9; background: var(--bar2); box-shadow: 0 2px 8px rgba(0,0,0,.35); cursor: grabbing; transition: none; }
 .tab .pv svg { width: 15px; height: 15px; stroke: #b794f6; }
 body.sombra #toolbar { background: var(--sombra-bg); color: var(--sombra-text); box-shadow: inset 0 -2px 0 var(--sombra); }
 body.sombra #toolbar .icon { color: var(--sombra-text); }

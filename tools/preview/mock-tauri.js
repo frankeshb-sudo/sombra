@@ -3,8 +3,10 @@
   const now = Math.floor(Date.now() / 1000);
   const state = {
     tabs: [
-      { id: 1, url: 'https://duckduckgo.com/?q=sombra', title: 'sombra en DuckDuckGo', loading: false, has_view: false },
+      { id: 1, url: 'https://duckduckgo.com/?q=sombra', title: 'sombra en DuckDuckGo', loading: false, has_view: true, favicon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGO4F+xAEmIY1TCqYfhqAADKK3EQzpjpuQAAAABJRU5ErkJggg==' },
       { id: 2, url: 'https://es.wikipedia.org/wiki/Tor', title: 'Tor (red de anonimato) - Wikipedia', loading: true, has_view: true },
+      { id: 3, url: 'https://www.openstreetmap.org/', title: 'OpenStreetMap', loading: false, has_view: false, favicon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGMwTjtDEmIY1TCqYfhqAAAyDmUQmz6KNwAAAABJRU5ErkJggg==' },
+      { id: 4, url: 'https://check.torproject.org/', title: 'Check Tor', loading: false, has_view: true, private: true },
     ],
     active: 1,
     tor: { ready: true, progress: 1, message: '', country: 'DE', error: null },
@@ -39,6 +41,7 @@
     get_history: ({ query }) => ({ items: history.filter(h => !query || (h.url + h.title).toLowerCase().includes(query.toLowerCase())), total: history.length }),
     set_settings: ({ patch }) => { Object.assign(state.settings, patch); return state.settings; },
     activate_tab: ({ id }) => { state.active = id; },
+    move_tab: ({ id, to }) => { const i = state.tabs.findIndex(t => t.id === id); const [t] = state.tabs.splice(i, 1); state.tabs.splice(Math.min(to, state.tabs.length), 0, t); window.__lastMove = { id, to }; },
     clean: () => ({ done: [] }),
     vault_status: () => ({ exists: vault.exists, unlocked: vault.unlocked, hint: 'el perro', count: 2 }),
     vault_create: () => { vault.exists = true; vault.unlocked = true; return 'ábaco cuerda nieve primo tarde lobo yema fino ruta salsa olor vapor'; },

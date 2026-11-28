@@ -153,6 +153,11 @@ fn activate_tab(app: AppHandle, sh: Sh, id: u32) {
 }
 
 #[tauri::command]
+fn move_tab(sh: Sh, id: u32, to: usize) {
+    tabs::move_tab(&sh, id, to);
+}
+
+#[tauri::command]
 async fn navigate(app: AppHandle, sh: Sh<'_>, id: Option<u32>, input: String) -> Result<(), String> {
     let id = match id.or_else(|| tabs::active_id(&sh)) {
         Some(i) => i,
@@ -828,6 +833,7 @@ fn main() {
             download_cancel,
             download_dismiss,
             activate_tab,
+            move_tab,
             navigate,
             nav_action,
             set_content_rect,
@@ -923,7 +929,7 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion"].contains(&v.as_str()))
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
             }
@@ -998,6 +1004,37 @@ fn main() {
                         log::warn!("SECTEST sesion 3 tras abrir la dormida: {}", lista(&sh2));
                     }
                     log::warn!("SECTEST sesion fin");
+                });
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=iconos): iconos de las webs y mover pestañas.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("iconos") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let lista = |sh: &Arc<Shared>| {
+                        let t = sh.tabs.lock();
+                        let l: Vec<String> = t.list.iter().map(|x| format!("{}#{} {} icono={}", if x.private { "S" } else { "N" }, x.id, x.url, if x.favicon.is_empty() { "no".to_string() } else { format!("{} letras {}", x.favicon.len(), &x.favicon[..30.min(x.favicon.len())]) })).collect();
+                        format!("{l:?}")
+                    };
+                    let a = tabs::new_tab_mode(&app2, &sh2, Some("https://www.wikipedia.org/".into()), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, a, 60).await;
+                    let b = tabs::new_tab_mode(&app2, &sh2, Some("https://github.com/".into()), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, b, 60).await;
+                    let c = tabs::new_tab_mode(&app2, &sh2, Some("https://www.torproject.org/".into()), true).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, c, 90).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                    log::warn!("SECTEST iconos 1: {}", lista(&sh2));
+                    let _ = tabs::navigate(&app2, &sh2, a, "https://www.wikidata.org/wiki/Special:BlankPage").await;
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    log::warn!("SECTEST iconos 2 otra web (sin el icono anterior): {}", lista(&sh2));
+                    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                    log::warn!("SECTEST iconos 3 icono nuevo: {}", lista(&sh2));
+                    tabs::move_tab(&sh2, c, 0);
+                    tabs::move_tab(&sh2, a, 99);
+                    log::warn!("SECTEST iconos 4 movidas (Sombra al principio, wikidata al final): {}", lista(&sh2));
+                    log::warn!("SECTEST iconos fin");
                 });
             }
 
@@ -1233,7 +1270,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion"].contains(&v.as_str())) {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {

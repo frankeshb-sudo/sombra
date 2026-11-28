@@ -89,7 +89,44 @@ function updateSearchUI() {
 }
 
 let lastTabsKey = '';
+/* Ordenar pestañas arrastrándolas (con el puntero: el arrastre HTML no siempre llega en
+   WebView2). Mientras se arrastra no se redibuja la barra. */
+const tabDrag = { id: null, el: null, x0: 0, moved: false };
+function tabDragStart(ev, b, id) {
+  if (ev.button !== 0 || ev.target.closest('.x')) return;
+  Object.assign(tabDrag, { id, el: b, x0: ev.clientX, moved: false });
+  b.setPointerCapture(ev.pointerId);
+  b.onpointermove = (e) => {
+    const dx = e.clientX - tabDrag.x0;
+    if (!tabDrag.moved && Math.abs(dx) < 6) return;
+    tabDrag.moved = true;
+    b.classList.add('dragging');
+    b.style.transform = `translateX(${dx}px)`;
+  };
+  const end = (e) => {
+    b.onpointermove = b.onpointerup = b.onpointercancel = null;
+    const moved = tabDrag.moved;
+    if (moved && e.type === 'pointerup') {
+      // Posición nueva: cuántas de las otras pestañas quedan antes del puntero.
+      const rtl = document.documentElement.dir === 'rtl';
+      const others = [...$('tabs').children].filter(x => x !== b);
+      const to = others.filter(x => { const r = x.getBoundingClientRect(); const mid = r.left + r.width / 2; return rtl ? mid > e.clientX : mid < e.clientX; }).length;
+      invoke('move_tab', { id, to });
+    }
+    b.classList.remove('dragging');
+    b.style.transform = '';
+    tabDrag.id = null;
+    lastTabsKey = '';
+    renderTabs();
+    // El "click" que sigue a soltar no debe activar la pestaña.
+    setTimeout(() => { tabDrag.moved = false; }, 0);
+  };
+  b.onpointerup = end;
+  b.onpointercancel = end;
+}
+
 function renderTabs() {
+  if (tabDrag.id !== null) return;
   // Solo se redibuja si algo ha cambiado (evita parpadeos con webs que cambian sin parar).
   const key = JSON.stringify([S.tabs, S.active, S.bookmarks.map(b => b.url), LANG, editingAddr]);
   if (key === lastTabsKey) return;
@@ -102,13 +139,18 @@ function renderTabs() {
     b.title = (tab.private ? t('modeSombra') + ' · ' : '') + (tab.url || t('newTabTitle'));
     if (tab.loading) b.append(el('span', 'spin'));
     else if (tab.private) { const m = el('span', 'pv'); m.innerHTML = MASK_SVG; b.append(m); }
-    b.append(el('span', 't', tab.has_view || tab.https_warn ? (tab.title || hostOf(tab.url)) : t('newTabTitle')));
+    else if (/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(tab.favicon || '')) {
+      const f = el('img', 'fav'); f.src = tab.favicon; f.alt = ''; f.draggable = false; b.append(f);
+    }
+    // Con dirección (abierta o dormida, recuperada de la sesión anterior): su título.
+    b.append(el('span', 't', tab.url ? (tab.title || hostOf(tab.url)) : t('newTabTitle')));
     const x = el('span', 'x');
     x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     x.onclick = (ev) => { ev.stopPropagation(); invoke('close_tab', { id: tab.id }); };
     b.append(x);
-    b.onclick = () => { closePage(); invoke('activate_tab', { id: tab.id }); };
+    b.onclick = () => { if (tabDrag.moved) return; closePage(); invoke('activate_tab', { id: tab.id }); };
     b.onauxclick = (ev) => { if (ev.button === 1) invoke('close_tab', { id: tab.id }); };
+    b.onpointerdown = (ev) => tabDragStart(ev, b, tab.id);
     box.append(b);
   }
   const a = activeTab();

@@ -13,6 +13,7 @@ fn main() {
         "download_cancel",
         "download_dismiss",
         "activate_tab",
+        "move_tab",
         "navigate",
         "nav_action",
         "set_content_rect",

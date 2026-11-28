@@ -34,6 +34,9 @@ pub struct TabInfo {
     /// Pestaña en modo Sombra (Tor, anti-huella, nada se guarda). Si no, modo normal: conexión
     /// directa, sesiones y cookies guardadas, para el día a día. Nunca comparten datos.
     pub private: bool,
+    /// Icono de la web (PNG pequeño en "data:"), solo en memoria. Vacío si no tiene o es del
+    /// modo Sombra (esas pestañas llevan la máscara).
+    pub favicon: String,
 }
 
 #[derive(Default)]
@@ -737,7 +740,7 @@ mod tests {
 
     #[test]
     fn sesion_solo_normales() {
-        let tab = |id, url: &str, private| super::TabInfo { id, url: url.into(), title: format!("t{id}"), loading: false, has_view: true, https_warn: false, private };
+        let tab = |id, url: &str, private| super::TabInfo { id, url: url.into(), title: format!("t{id}"), loading: false, has_view: true, https_warn: false, private, favicon: String::new() };
         let list = vec![tab(1, "https://a.es/", false), tab(2, "https://secreto.onion/", true), tab(3, "", false), tab(4, "http://b.es/x", false)];
         let s = super::session_of(&list, Some(4));
         assert_eq!(s.tabs.iter().map(|t| t.url.as_str()).collect::<Vec<_>>(), ["https://a.es/", "http://b.es/x"]);

@@ -17,6 +17,7 @@
     "allow-download-cancel",
     "allow-download-dismiss",
     "allow-activate-tab",
+    "allow-move-tab",
     "allow-navigate",
     "allow-nav-action",
     "allow-set-content-rect",
