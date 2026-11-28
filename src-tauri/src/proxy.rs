@@ -113,7 +113,8 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>, private: bool) -> anyhow::Res
 
     // Modo solo HTTPS: nada sale sin cifrar (puerto 80) salvo las webs que el usuario ha
     // aceptado abrir así. Los .onion ya van cifrados de punta a punta dentro de Tor.
-    if port == 80 && !host.ends_with(".onion") && !is_local(&host) && sh.settings.lock().https_only && !sh.http_allowed(&host) {
+    // Excepción: los certificados que el navegador descarga solo (ver `cert_download`).
+    if port == 80 && !host.ends_with(".onion") && !is_local(&host) && !cert_download(&host) && sh.settings.lock().https_only && !sh.http_allowed(&host) {
         sh.stats.page_blocked.fetch_add(1, Ordering::Relaxed);
         reply(&mut s, REP_NOT_ALLOWED).await?;
         return Ok(());
@@ -152,6 +153,26 @@ async fn handle(mut s: TcpStream, sh: Arc<Shared>, private: bool) -> anyhow::Res
         _ = cut_signal => {}
     }
     Ok(())
+}
+
+/// Servidores de las autoridades de certificados de donde el navegador descarga, sin cifrar
+/// (así funciona en todos los navegadores), un certificado intermedio que la web se ha dejado
+/// de enviar, o comprueba si uno está revocado. Sin esto, webs mal configuradas dan "Su conexión
+/// no es privada" en Sombra y no en Chrome. Es seguro: lo descargado va firmado por la autoridad
+/// y el navegador lo comprueba; nada de la web ni del usuario viaja en esas peticiones.
+fn cert_download(host: &str) -> bool {
+    const CA: &[&str] = &[
+        "sectigo.com", "usertrust.com", "comodoca.com", "digicert.com", "globalsign.com", "pki.goog",
+        "lencr.org", "entrust.net", "amazontrust.com", "identrust.com", "certum.pl", "ssl.com",
+        "buypass.no", "harica.gr", "quovadisglobal.com", "starfieldtech.com", "geotrust.com",
+        "rapidssl.com", "thawte.com", "symcb.com", "symcd.com", "trust-provider.com",
+        "certificates.godaddy.com", "crl.godaddy.com", "ocsp.godaddy.com",
+        "pki.microsoft.com", "fnmt.es", "accv.es", "camerfirma.com", "izenpe.com",
+        "aoc.cat", "catcert.cat", "firmaprofesional.com", "actalis.it", "swisssign.net", "d-trust.net",
+        "telesec.de", "e-szigno.hu", "certigna.fr", "netlock.hu", "secomtrust.net", "twca.com.tw",
+    ];
+    let h = host.trim_end_matches('.');
+    CA.iter().any(|d| h == *d || h.strip_suffix(d).is_some_and(|r| r.ends_with('.')))
 }
 
 fn is_loopback(host: &str) -> bool {
@@ -215,4 +236,22 @@ pub async fn connect_direct(host: &str, port: u16, local_ok: bool) -> Option<Tcp
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cert_download;
+
+    #[test]
+    fn descargas_de_certificados() {
+        assert!(cert_download("crt.sectigo.com"));
+        assert!(cert_download("ocsp.sectigo.com."));
+        assert!(cert_download("r11.i.lencr.org"));
+        assert!(cert_download("certificates.godaddy.com"));
+        // Ni el resto de GoDaddy ni dominios que solo se parecen.
+        assert!(!cert_download("www.godaddy.com"));
+        assert!(!cert_download("evilsectigo.com"));
+        assert!(!cert_download("sectigo.com.evil.net"));
+        assert!(!cert_download("www.montblanc.cat"));
+    }
 }

@@ -5,9 +5,12 @@
 #  3) Lo instala sin preguntas (/S) encima del que hay. Tus datos (ajustes, sesiones,
 #     contraseñas) se conservan: el instalador solo cambia el programa.
 # Si Sombra está abierta no la cierra: avisa y sale (código 2) para no perder lo que tengas abierto.
+# Con -EsperarCierre, en vez de salir espera (hasta 24 h) a que la cierres y entonces la actualiza.
+# Con -Fondo se lanza a sí mismo en segundo plano, sin ventana, y apunta todo en
+# <Escritorio>\Sombra\instalador\actualizar.log (sigue aunque se cierre quien lo lanzó).
 # Si Windows bloquea el instalador (sin firmar), avisa y sale (código 3).
-# Uso: powershell -File tools\actualizar-windows.ps1 [-Sha <cambio>] [-SoloDescargar]
-param([string]$Sha = "", [switch]$SoloDescargar)
+# Uso: powershell -File tools\actualizar-windows.ps1 [-Sha <cambio>] [-SoloDescargar] [-EsperarCierre] [-Fondo]
+param([string]$Sha = "", [switch]$SoloDescargar, [switch]$EsperarCierre, [switch]$Fondo)
 $ErrorActionPreference = 'Stop'
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
 if (-not $gh) { $gh = "C:\Program Files\GitHub CLI\gh.exe" }
@@ -15,6 +18,24 @@ $repo = "frankeshb-sudo/sombra"
 $dest = Join-Path ([Environment]::GetFolderPath("Desktop")) "Sombra\instalador"
 $setup = Join-Path $dest "Sombra_0.1.0_x64-setup.exe"
 $exe = Join-Path $env:LOCALAPPDATA "Sombra\sombra.exe"
+
+if ($Fondo) {
+    New-Item -ItemType Directory -Force $dest | Out-Null
+    $log = Join-Path $dest "actualizar.log"
+    $shaArg = if ($Sha) { $Sha } else { "main" }
+    $cmd = "& '$PSCommandPath' -Sha '$shaArg' -EsperarCierre *>> '$log'; exit `$LASTEXITCODE"
+    # Una sola actualización esperando: la nueva (de un cambio más reciente) sustituye a la anterior.
+    $pidFile = Join-Path $dest "actualizar.pid"
+    if (Test-Path $pidFile) {
+        $old = Get-Process -Id ([int](Get-Content $pidFile)) -ErrorAction SilentlyContinue
+        if ($old -and $old.ProcessName -eq 'powershell') { Stop-Process -Id $old.Id -Force }
+    }
+    $p = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd
+    Set-Content $pidFile $p.Id
+    Write-Output "Actualización en segundo plano ($shaArg). Registro: $log"
+    exit 0
+}
+Write-Output "--- $(Get-Date -Format s)"
 
 if (-not $Sha) { $Sha = "main" }
 # Siempre el identificador completo (acepta "main", uno corto como a51c0ae o uno completo).
@@ -56,8 +77,19 @@ Write-Output "Instalador: $setup"
 if ($SoloDescargar) { exit 0 }
 
 if (Get-Process -Name sombra -ErrorAction SilentlyContinue) {
-    Write-Output "Sombra está abierta: ciérrala y vuelve a ejecutar esto para actualizarla."
-    exit 2
+    if (-not $EsperarCierre) {
+        Write-Output "Sombra está abierta: ciérrala y vuelve a ejecutar esto para actualizarla."
+        exit 2
+    }
+    Write-Output "Sombra está abierta: se actualizará en cuanto la cierres."
+    $limit = (Get-Date).AddHours(24)
+    while (Get-Process -Name sombra -ErrorAction SilentlyContinue) {
+        if ((Get-Date) -gt $limit) { Write-Output "Sombra lleva 24 h abierta: no se ha actualizado."; exit 2 }
+        Start-Sleep 10
+    }
+    # Que termine de cerrarse del todo (archivos y motor web).
+    Start-Sleep 5
+    while (Get-Process -Name sombra -ErrorAction SilentlyContinue) { Start-Sleep 5 }
 }
 $before = if (Test-Path $exe) { (Get-FileHash $exe).Hash } else { "" }
 # El instalador no está firmado: el Control de aplicaciones inteligente de Windows puede

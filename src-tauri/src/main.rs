@@ -9,6 +9,7 @@
 
 mod blocker;
 mod control;
+mod downloads;
 mod proxy;
 mod state;
 mod tabs;
@@ -107,6 +108,30 @@ async fn new_tab(app: AppHandle, sh: Sh<'_>, url: Option<String>, private: Optio
 #[tauri::command]
 async fn close_tab(app: AppHandle, sh: Sh<'_>, id: u32) -> Result<(), String> {
     tabs::close(&app, &sh, id).await.map_err(e2s)
+}
+
+/// Descargas de esta sesión.
+#[tauri::command]
+fn downloads_list(sh: Sh) -> Vec<downloads::Download> {
+    sh.downloads.lock().clone()
+}
+
+/// Muestra el archivo descargado en su carpeta.
+#[tauri::command]
+fn download_show(sh: Sh, id: u32) -> Result<(), String> {
+    let p = downloads::path_of(&sh, id).ok_or("No existe esa descarga")?;
+    downloads::reveal(&p).map_err(e2s)
+}
+
+#[tauri::command]
+fn download_cancel(app: AppHandle, id: u32) {
+    let _ = app.run_on_main_thread(move || downloads::cancel_native(id));
+}
+
+/// Quita de la lista una descarga terminada (o todas las terminadas).
+#[tauri::command]
+fn download_dismiss(sh: Sh, id: Option<u32>) {
+    downloads::dismiss(&sh, id);
 }
 
 /// Reabre una pestaña cerrada (la última si no se dice cuál).
@@ -781,6 +806,10 @@ fn main() {
             close_tab,
             reopen_tab,
             closed_tabs,
+            downloads_list,
+            download_show,
+            download_cancel,
+            download_dismiss,
             activate_tab,
             navigate,
             nav_action,
@@ -877,9 +906,44 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir"].contains(&v.as_str()))
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=descargas): progreso, carpeta y cancelar.
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("descargas") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let ver = |sh: &Arc<Shared>| {
+                        sh.downloads.lock().iter().map(|d| format!("#{} {} [{}] {}/{} eta={:?} en {}", d.id, d.name, d.state, d.received, d.total, d.eta, d.folder)).collect::<Vec<_>>().join(" | ")
+                    };
+                    let _ = tabs::new_tab_mode(&app2, &sh2, Some("https://proof.ovh.net/files/10Mb.dat".into()), false).await;
+                    for i in 0..60 {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        if i % 3 == 0 {
+                            log::warn!("SECTEST descargas 1 ({i} s): {}", ver(&sh2));
+                        }
+                        if sh2.downloads.lock().iter().any(|d| d.state != "progress") {
+                            break;
+                        }
+                    }
+                    log::warn!("SECTEST descargas 2 terminada: {}", ver(&sh2));
+                    let _ = tabs::new_tab_mode(&app2, &sh2, Some("https://proof.ovh.net/files/100Mb.dat".into()), false).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let id = sh2.downloads.lock().iter().rev().find(|d| d.state == "progress").map(|d| d.id);
+                    log::warn!("SECTEST descargas 3 en marcha: {}", ver(&sh2));
+                    if let Some(id) = id {
+                        let _ = app2.run_on_main_thread(move || downloads::cancel_native(id));
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    log::warn!("SECTEST descargas 4 cancelada: {}", ver(&sh2));
+                    downloads::dismiss(&sh2, None);
+                    log::warn!("SECTEST descargas 5 tras quitar terminadas: {}", ver(&sh2));
+                    log::warn!("SECTEST descargas fin");
+                });
             }
 
             // Solo en pruebas (SOMBRA_SECTEST=reabrir): reabrir pestañas cerradas.
@@ -1074,7 +1138,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir"].contains(&v.as_str())) {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {

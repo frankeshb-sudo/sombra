@@ -805,6 +805,65 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && pageOpen) closePage();
 });
 listen('shortcut', (ev) => runShortcut(ev.payload));
+
+/* ---------- descargas: cuánto queda y en qué carpeta ---------- */
+const DL_ICONS = {
+  file: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+};
+function fmtBytes(n) {
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return new Intl.NumberFormat(LANG, { maximumFractionDigits: i < 2 ? 0 : 1 }).format(n) + ' ' + u[i];
+}
+function fmtLeft(s) {
+  if (s < 60) return t('dlLeftS', { n: s });
+  if (s < 3600) return t('dlLeftM', { n: Math.ceil(s / 60) });
+  return t('dlLeftH', { n: new Intl.NumberFormat(LANG, { maximumFractionDigits: 1 }).format(s / 3600) });
+}
+function dlButton(icon, title, fn) {
+  const b = el('button', 'icon small');
+  b.title = title;
+  b.innerHTML = '<svg viewBox="0 0 24 24">' + DL_ICONS[icon] + '</svg>';
+  b.onclick = fn;
+  return b;
+}
+function renderDownloads(list) {
+  const box = $('downloads');
+  box.textContent = '';
+  box.classList.toggle('hidden', !list.length);
+  for (const d of list.slice().reverse()) {
+    const row = el('div', 'dl ' + d.state);
+    row.innerHTML = '<svg viewBox="0 0 24 24">' + DL_ICONS.file + '</svg>';
+    const info = el('div', 'info'), top = el('div', 'top');
+    let st;
+    if (d.state === 'progress') {
+      st = d.total ? t('dlOf', { a: fmtBytes(d.received), b: fmtBytes(d.total) }) : fmtBytes(d.received);
+      if (d.eta != null) st += ' · ' + fmtLeft(d.eta);
+      st += ' · ' + d.folder;
+    } else if (d.state === 'done') st = t('dlDone', { f: d.folder }) + ' · ' + fmtBytes(d.received);
+    else st = t(d.state === 'cancelled' ? 'dlCancelled' : 'dlFailed');
+    const nm = el('span', 'nm', d.name || '…');
+    if (d.private) nm.prepend(el('span', 'h-sombra', 'Sombra'));
+    top.append(nm, el('span', 'st', st));
+    top.title = d.folder ? d.folder + (d.name ? (d.folder.includes('\\') ? '\\' : '/') + d.name : '') : '';
+    info.append(top);
+    if (d.state === 'progress') {
+      const bar = el('div', 'bar' + (d.total ? '' : ' unknown')), fill = el('div');
+      if (d.total) fill.style.width = Math.min(100, d.received / d.total * 100).toFixed(1) + '%';
+      bar.append(fill); info.append(bar);
+    }
+    row.append(info);
+    if (d.state !== 'failed' && d.state !== 'cancelled') row.append(dlButton('folder', t('dlShow'), () => invoke('download_show', { id: d.id }).catch(err => showAlert('notice', errText(err), [[t('ok'), '', null]]))));
+    if (d.state === 'progress') row.append(dlButton('x', t('dlCancel'), () => invoke('download_cancel', { id: d.id })));
+    else row.append(dlButton('x', t('dlDismiss'), () => invoke('download_dismiss', { id: d.id })));
+    box.append(row);
+  }
+}
+listen('downloads', (ev) => renderDownloads(ev.payload || []));
+invoke('downloads_list').then(renderDownloads).catch(() => {});
 // Pantalla completa de una página: detrás solo negro (si quedan bordes, no se ve la interfaz).
 listen('fullscreen', (ev) => document.documentElement.classList.toggle('fs', !!ev.payload));
 

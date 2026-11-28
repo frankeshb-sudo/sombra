@@ -619,12 +619,15 @@ fn open_afirma(sh: &Shared, id: u32, private: bool, u: &url::Url) -> bool {
 #[cfg(windows)]
 fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, private: bool) {
     use webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2_18, ICoreWebView2_5, COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+        ICoreWebView2_18, ICoreWebView2_4, ICoreWebView2_5, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON,
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED, COREWEBVIEW2_DOWNLOAD_STATE, COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED,
+        COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED, COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
         COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
     };
     use webview2_com::{
-        AcceleratorKeyPressedEventHandler, ClientCertificateRequestedEventHandler, ContainsFullScreenElementChangedEventHandler,
-        LaunchingExternalUriSchemeEventHandler,
+        AcceleratorKeyPressedEventHandler, BytesReceivedChangedEventHandler, ClientCertificateRequestedEventHandler,
+        ContainsFullScreenElementChangedEventHandler, DownloadStartingEventHandler, LaunchingExternalUriSchemeEventHandler,
+        StateChangedEventHandler,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
     use windows_core::{Interface, BOOL, PWSTR};
@@ -700,6 +703,68 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
                 );
             }
         }
+        // Descargas: progreso, tiempo que queda y carpeta, en la barra de descargas de Sombra
+        // (en lugar del aviso propio de WebView2, que se dibujaría dentro de la página).
+        if let Ok(w4) = core.cast::<ICoreWebView2_4>() {
+            let sh2 = sh.clone();
+            let _ = w4.add_DownloadStarting(
+                &DownloadStartingEventHandler::create(Box::new(move |_, args| {
+                    let Some(a) = args else { return Ok(()) };
+                    a.SetHandled(true)?;
+                    let op = a.DownloadOperation()?;
+                    let mut p = PWSTR::null();
+                    a.ResultFilePath(&mut p)?;
+                    let path = webview2_com::take_pwstr(p);
+                    let mut total = 0i64;
+                    op.TotalBytesToReceive(&mut total)?;
+                    let did = crate::downloads::start(&sh2, private, &path, total.max(0) as u64);
+                    let mut tok = 0i64;
+                    let sh3 = sh2.clone();
+                    op.add_BytesReceivedChanged(
+                        &BytesReceivedChangedEventHandler::create(Box::new(move |s, _| {
+                            if let Some(o) = s {
+                                let (mut r, mut t) = (0i64, 0i64);
+                                o.BytesReceived(&mut r)?;
+                                o.TotalBytesToReceive(&mut t)?;
+                                crate::downloads::progress(&sh3, did, r.max(0) as u64, t.max(0) as u64);
+                            }
+                            Ok(())
+                        })),
+                        &mut tok,
+                    )?;
+                    let sh3 = sh2.clone();
+                    op.add_StateChanged(
+                        &StateChangedEventHandler::create(Box::new(move |s, _| {
+                            let Some(o) = s else { return Ok(()) };
+                            let mut st = COREWEBVIEW2_DOWNLOAD_STATE::default();
+                            o.State(&mut st)?;
+                            let mut p = PWSTR::null();
+                            if o.ResultFilePath(&mut p).is_ok() {
+                                crate::downloads::set_path(&sh3, did, &webview2_com::take_pwstr(p));
+                            }
+                            if st == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED {
+                                let mut r = 0i64;
+                                o.BytesReceived(&mut r)?;
+                                crate::downloads::progress(&sh3, did, r.max(0) as u64, 0);
+                                crate::downloads::finish(&sh3, did, "done");
+                                crate::downloads::drop_native(did);
+                            } else if st == COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED {
+                                let mut why = COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON::default();
+                                o.InterruptReason(&mut why)?;
+                                let cancelled = why == COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED;
+                                crate::downloads::finish(&sh3, did, if cancelled { "cancelled" } else { "failed" });
+                                crate::downloads::drop_native(did);
+                            }
+                            Ok(())
+                        })),
+                        &mut tok,
+                    )?;
+                    crate::downloads::keep_native(did, op);
+                    Ok(())
+                })),
+                &mut token,
+            );
+        }
         if let Ok(w18) = core.cast::<ICoreWebView2_18>() {
             let _ = w18.add_LaunchingExternalUriScheme(
                 &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
@@ -722,6 +787,61 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
             );
         }
     }
+}
+
+/// Descargas en Linux: el contexto web (uno por modo) avisa de cada una. Se engancha una sola
+/// vez por contexto (se marca con un dato propio).
+#[cfg(target_os = "linux")]
+fn linux_downloads(wv: &webkit2gtk::WebView, sh: &Arc<Shared>, private: bool) {
+    use crate::downloads as dl;
+    use gtk::glib::prelude::*;
+    use webkit2gtk::{DownloadExt, URIRequestExt, URIResponseExt, WebContextExt, WebViewExt};
+    let Some(ctx) = wv.context() else { return };
+    // SAFETY: el dato solo lo pone y lo lee este código, siempre como bool.
+    unsafe {
+        if ctx.data::<bool>("sombra-downloads").is_some() {
+            return;
+        }
+        ctx.set_data("sombra-downloads", true);
+    }
+    let sh = sh.clone();
+    ctx.connect_download_started(move |_, d| {
+        let total = d.response().map_or(0, |r| r.content_length());
+        // Nombre: el que da la web (Content-Disposition) o el final de la dirección.
+        let from_url = d.request().and_then(|r| r.uri()).map(|u| u.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("").to_string()).unwrap_or_default();
+        let name = d.response().and_then(|r| r.suggested_filename()).map(|n| n.to_string()).filter(|n| !n.is_empty()).unwrap_or(from_url);
+        // A la carpeta de descargas del sistema y sin pisar archivos que ya existan. (Si el
+        // sistema no tiene carpeta de descargas configurada, WebKit decide; la barra de
+        // descargas muestra siempre la carpeta real, que llega en "created-destination".)
+        let dest = dl::free_path(&dl::folder(), &name);
+        if let Ok(uri) = gtk::glib::filename_to_uri(&dest, None) {
+            d.set_destination(&uri);
+        }
+        let did = dl::start(&sh, private, &dest.to_string_lossy(), total);
+        dl::keep_native(did, d.clone());
+        let s = sh.clone();
+        d.connect_created_destination(move |_, dest| {
+            if let Ok((p, _)) = gtk::glib::filename_from_uri(dest) {
+                dl::set_path(&s, did, &p.to_string_lossy());
+            }
+        });
+        let s = sh.clone();
+        d.connect_received_data(move |d, _| {
+            dl::progress(&s, did, d.received_data_length(), d.response().map_or(0, |r| r.content_length()));
+        });
+        let s = sh.clone();
+        d.connect_failed(move |_, e| {
+            let cancelled = e.matches(webkit2gtk::DownloadError::CancelledByUser);
+            dl::finish(&s, did, if cancelled { "cancelled" } else { "failed" });
+            dl::drop_native(did);
+        });
+        let s = sh.clone();
+        d.connect_finished(move |d| {
+            dl::progress(&s, did, d.received_data_length(), 0);
+            dl::finish(&s, did, "done");
+            dl::drop_native(did);
+        });
+    });
 }
 
 /// Tecla pulsada dentro de una página (Windows y Linux la traducen a esto).
@@ -1107,6 +1227,27 @@ fn linux_hooks(wv: webkit2gtk::WebView, sh: Arc<Shared>, app: AppHandle, id: u32
     use gtk::glib::Propagation;
     use gtk::prelude::*;
     use webkit2gtk::WebViewExt;
+    linux_downloads(&wv, &sh, tab_private(&sh, id));
+    // Lo que el motor no sabe mostrar, o lo que la web manda como archivo (con nombre propio,
+    // "Content-Disposition"), se descarga. Sin esto WebKit lo ignora y no pasa nada.
+    {
+        use webkit2gtk::{PolicyDecisionExt, PolicyDecisionType, ResponsePolicyDecision, ResponsePolicyDecisionExt, URIResponseExt};
+        wv.connect_decide_policy(|_, d, t| {
+            if t != PolicyDecisionType::Response {
+                return false;
+            }
+            let Some(r) = d.dynamic_cast_ref::<ResponsePolicyDecision>() else { return false };
+            let resp = r.response();
+            // Una página web nunca se descarga, aunque traiga nombre de archivo.
+            let html = resp.as_ref().and_then(|x| x.mime_type()).is_some_and(|m| m.starts_with("text/html") || m.starts_with("application/xhtml"));
+            let named = !html && resp.and_then(|x| x.suggested_filename()).is_some_and(|n| !n.is_empty());
+            if named || !r.is_mime_type_supported() {
+                d.download();
+                return true;
+            }
+            false
+        });
+    }
     fn zoom(w: &webkit2gtk::WebView, z: Option<f64>) {
         let n = z.map_or(1.0, |d| (w.zoom_level() + d).clamp(0.3, 3.0));
         w.set_zoom_level((n * 10.0).round() / 10.0);

@@ -183,6 +183,8 @@ pub struct Shared {
     pub blocking_enabled: AtomicBool,
     pub stats: Stats,
     pub tabs: Mutex<Tabs>,
+    /// Descargas de esta sesión (solo en memoria).
+    pub downloads: Mutex<Vec<crate::downloads::Download>>,
     top_hosts: RwLock<HashSet<String>>,
     pub logs: Mutex<Vec<LogEntry>>,
     pub settings: Mutex<Settings>,
@@ -222,6 +224,7 @@ impl Shared {
             blocking_enabled: AtomicBool::new(settings.blocking_enabled),
             stats: Stats::default(),
             tabs: Mutex::new(Tabs { next: 1, ..Default::default() }),
+            downloads: Mutex::new(Vec::new()),
             top_hosts: RwLock::new(HashSet::new()),
             logs: Mutex::new(Vec::new()),
             settings: Mutex::new(settings),

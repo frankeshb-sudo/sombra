@@ -46,6 +46,12 @@
     vault_lock: () => { vault.unlocked = false; },
     vault_list: () => { if (!vault.unlocked) throw 'vaultLocked'; return { items: [{ id: 1, host: 'github.com', user: 'ana@correo.es', updated: now }, { id: 2, host: 'wikipedia.org', user: 'Ana', updated: now }], never: ['bancomalo.com'] }; },
     vault_reveal: () => 'Xk7#pQ2m!vR9wL4z',
+    downloads_list: () => [
+      { id: 1, name: 'informe-2026.pdf', folder: 'C:\\Users\\ana\\Downloads', received: 2400000, total: 2400000, state: 'done', private: false, eta: null },
+      { id: 2, name: 'ubuntu-24.04-desktop-amd64.iso', folder: 'C:\\Users\\ana\\Downloads', received: 1288490188, total: 6114770944, state: 'progress', private: false, eta: 412 },
+      { id: 3, name: 'documento.zip', folder: 'C:\\Users\\ana\\Downloads', received: 5242880, total: 0, state: 'progress', private: true, eta: null },
+      { id: 4, name: 'video.mp4', folder: 'C:\\Users\\ana\\Downloads', received: 100, total: 900, state: 'cancelled', private: false, eta: null },
+    ],
     vault_matches: () => ({ vault: { exists: vault.exists, unlocked: vault.unlocked }, host: 'duckduckgo.com', items: [] }),
   };
   window.__TAURI__ = {
