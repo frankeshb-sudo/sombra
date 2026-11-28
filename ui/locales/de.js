@@ -22,6 +22,7 @@ I18N.de = {
   searchInvalid: 'Ungültige Adresse. Sie muss mit https:// beginnen und %s enthalten.',
   historyMode: 'Verlauf', histOff: 'Nichts speichern (maximaler Datenschutz)', histSession: 'Nur solange Sombra geöffnet ist',
   histSave: 'Auf diesem Gerät speichern', histSaveNote: 'Gespeichert bleibt er in einer Datei auf deinem Gerät. In Version 0.2 wird er mit deinem Master-Passwort verschlüsselt.',
+  histNormalOnly: "Der Verlauf gilt nur für den normalen Modus: Was du im Sombra-Modus besuchst, wird nie gespeichert.",
   cleanOnExit: 'Verlauf beim Schließen löschen', viewHistory: 'Verlauf anzeigen', histSearchPh: 'Im Verlauf suchen',
   histEmpty: 'Der Verlauf ist leer.', clearAllHistory: 'Alles löschen', remove: 'Entfernen',
   cleaner: 'Bereinigen', cleanNow: 'Jetzt bereinigen', cHistory: 'Verlauf', cCache: 'Cache und Cookies dieser Sitzung',

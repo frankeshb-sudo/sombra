@@ -22,6 +22,7 @@ I18N.it = {
   searchInvalid: 'Indirizzo non valido. Deve iniziare con https:// e contenere %s.',
   historyMode: 'Cronologia', histOff: 'Non salvare nulla (massima privacy)', histSession: 'Solo finché Sombra è aperto',
   histSave: 'Salva su questo dispositivo', histSaveNote: 'Se salvata, resta in un file sul tuo dispositivo. Nella versione 0.2 sarà cifrata con la tua password principale.',
+  histNormalOnly: "La cronologia riguarda solo la modalità normale: ciò che visiti in modalità Sombra non viene mai salvato.",
   cleanOnExit: 'Cancella la cronologia alla chiusura', viewHistory: 'Vedi cronologia', histSearchPh: 'Cerca nella cronologia',
   histEmpty: 'La cronologia è vuota.', clearAllHistory: 'Cancella tutto', remove: 'Rimuovi',
   cleaner: 'Pulizia', cleanNow: 'Pulisci ora', cHistory: 'Cronologia', cCache: 'Cache e cookie di questa sessione',

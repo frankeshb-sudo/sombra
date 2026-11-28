@@ -22,6 +22,7 @@ I18N.pt = {
   searchInvalid: 'Endereço inválido. Deve começar por https:// e conter %s.',
   historyMode: 'Histórico', histOff: 'Não guardar nada (privacidade máxima)', histSession: 'Só enquanto o Sombra está aberto',
   histSave: 'Guardar neste dispositivo', histSaveNote: 'Se guardado, fica num ficheiro do seu dispositivo. Na versão 0.2 será cifrado com a sua palavra-passe mestra.',
+  histNormalOnly: "O histórico é só do modo normal: o que visita no modo Sombra nunca é guardado.",
   cleanOnExit: 'Apagar o histórico ao fechar', viewHistory: 'Ver histórico', histSearchPh: 'Pesquisar no histórico',
   histEmpty: 'O histórico está vazio.', clearAllHistory: 'Apagar tudo', remove: 'Remover',
   cleaner: 'Limpeza', cleanNow: 'Limpar agora', cHistory: 'Histórico', cCache: 'Cache e cookies desta sessão',

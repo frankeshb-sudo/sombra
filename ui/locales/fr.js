@@ -22,6 +22,7 @@ I18N.fr = {
   searchInvalid: 'Adresse invalide. Elle doit commencer par https:// et contenir %s.',
   historyMode: 'Historique', histOff: 'Ne rien enregistrer (confidentialité maximale)', histSession: 'Seulement tant que Sombra est ouvert',
   histSave: 'Enregistrer sur cet appareil', histSaveNote: 'S’il est enregistré, il reste dans un fichier de votre appareil. Dans la version 0.2, il sera chiffré avec votre mot de passe principal.',
+  histNormalOnly: "L'historique ne concerne que le mode normal : ce que vous visitez en mode Sombra n'est jamais enregistré.",
   cleanOnExit: 'Effacer l’historique à la fermeture', viewHistory: 'Voir l’historique', histSearchPh: 'Rechercher dans l’historique',
   histEmpty: 'L’historique est vide.', clearAllHistory: 'Tout effacer', remove: 'Retirer',
   cleaner: 'Nettoyeur', cleanNow: 'Nettoyer maintenant', cHistory: 'Historique', cCache: 'Cache et cookies de cette session',

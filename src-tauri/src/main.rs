@@ -1452,6 +1452,8 @@ fn main() {
                     let _ = std::fs::remove_file(sh.data_dir.join("control.json"));
                     if sh.settings.lock().clean_on_exit {
                         sh.clear_history();
+                    } else {
+                        sh.save_history_pending();
                     }
                 }
                 let dir = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("Sombra").join("webview");

@@ -22,6 +22,7 @@ I18N.ar = {
   searchInvalid: 'عنوان غير صالح. يجب أن يبدأ بـ https:// وأن يحتوي على %s.',
   historyMode: 'السجل', histOff: 'لا تحفظ شيئًا (أقصى خصوصية)', histSession: 'فقط أثناء فتح Sombra',
   histSave: 'الحفظ على هذا الجهاز', histSaveNote: 'عند الحفظ يبقى في ملف على جهازك. في الإصدار 0.2 سيُشفَّر بكلمة مرورك الرئيسية.',
+  histNormalOnly: "السجل خاص بالوضع العادي فقط: ما تزوره في وضع Sombra لا يُحفظ أبدًا.",
   cleanOnExit: 'مسح السجل عند الإغلاق', viewHistory: 'عرض السجل', histSearchPh: 'البحث في السجل',
   histEmpty: 'السجل فارغ.', clearAllHistory: 'مسح الكل', remove: 'إزالة',
   cleaner: 'المنظِّف', cleanNow: 'نظّف الآن', cHistory: 'السجل', cCache: 'ذاكرة التخزين المؤقت وملفات تعريف الارتباط لهذه الجلسة',

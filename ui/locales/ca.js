@@ -22,6 +22,7 @@ I18N.ca = {
   searchInvalid: 'Adreça no vàlida. Ha de començar per https:// i contenir %s.',
   historyMode: 'Historial', histOff: 'No desar res (màxima privadesa)', histSession: 'Només mentre Sombra és obert',
   histSave: 'Desa en aquest equip', histSaveNote: 'Si es desa, queda en un fitxer del teu equip. A la versió 0.2 anirà xifrat amb la teva contrasenya mestra.',
+  histNormalOnly: "L'historial és només del mode normal: el que visites en mode Sombra no es desa mai.",
   cleanOnExit: 'Esborra l’historial en tancar', viewHistory: 'Mostra l’historial', histSearchPh: 'Cerca a l’historial',
   histEmpty: 'L’historial és buit.', clearAllHistory: 'Esborra-ho tot', remove: 'Treu',
   cleaner: 'Netejador', cleanNow: 'Neteja ara', cHistory: 'Historial', cCache: 'Memòria cau i galetes d’aquesta sessió',

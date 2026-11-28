@@ -111,7 +111,14 @@ pub struct Settings {
     pub secure_dns: bool,
     /// Bloquear las cookies de terceros (Linux) / prevención de seguimiento estricta (Windows).
     pub block_3p_cookies: bool,
+    /// Versión de los ajustes (para cambios de valores por defecto en ajustes ya guardados).
+    /// Falta en los archivos antiguos: entonces vale 0.
+    #[serde(default)]
+    pub version: u32,
 }
+
+/// Versión actual de los ajustes. 1: el historial del modo normal se guarda por defecto.
+pub const SETTINGS_VERSION: u32 = 1;
 
 /// DuckDuckGo por su dirección dentro de la red Tor: ni el buscador ni ningún
 /// nodo de salida ven quién busca.
@@ -120,6 +127,20 @@ pub const DDG_CLEARNET: &str = "https://duckduckgo.com/?q=%s";
 pub const DDG_ONION: &str = "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/?q=%s";
 
 impl Settings {
+    /// Pone al día unos ajustes guardados por una versión anterior. Devuelve si ha cambiado algo.
+    pub fn migrate(&mut self) -> bool {
+        if self.version >= SETTINGS_VERSION {
+            return false;
+        }
+        // Antes de la versión 1, "solo mientras está abierto" era lo que venía por defecto;
+        // ahora lo es guardar el historial. "No guardar nada" se respeta.
+        if self.version < 1 && self.history_mode == "session" {
+            self.history_mode = "save".into();
+        }
+        self.version = SETTINGS_VERSION;
+        true
+    }
+
     /// Parte fija de la URL del buscador (lo que va antes de `%s`).
     pub fn search_prefix(&self) -> &str {
         self.search.split("%s").next().unwrap_or(&self.search)
@@ -149,7 +170,7 @@ impl Default for Settings {
             font_size: 13,
             compact: false,
             show_bookmarks: true,
-            history_mode: "session".into(),
+            history_mode: "save".into(),
             clean_on_exit: false,
             history_searches: false,
             vault_lock_min: 15,
@@ -160,6 +181,7 @@ impl Default for Settings {
             default_private: false,
             secure_dns: true,
             block_3p_cookies: true,
+            version: SETTINGS_VERSION,
         }
     }
 }
@@ -207,6 +229,11 @@ pub struct Shared {
     pub https_known: Mutex<HashSet<String>>,
     /// AutoFirma: hasta cuándo y por qué puertos puede la web hablar con ella (ver start_afirma).
     afirma: Mutex<Option<(std::time::Instant, Vec<u16>)>>,
+    /// Hay cambios del historial esperando a guardarse (ver save_history_soon).
+    history_dirty: AtomicBool,
+    /// Guardar y borrar el historial nunca a la vez: un guardado en marcha no puede volver a
+    /// escribir lo que se acaba de borrar.
+    history_io: Mutex<()>,
 }
 
 pub fn now() -> u64 {
@@ -215,7 +242,8 @@ pub fn now() -> u64 {
 
 impl Shared {
     pub fn new(data_dir: PathBuf) -> Arc<Self> {
-        let settings: Settings = read_json(&data_dir.join("settings.json")).unwrap_or_default();
+        let mut settings: Settings = read_json(&data_dir.join("settings.json")).unwrap_or_default();
+        let migrated = settings.migrate();
         crate::doh::ENABLED.store(settings.secure_dns, std::sync::atomic::Ordering::Relaxed);
         let bookmarks: Vec<Bookmark> = read_json(&data_dir.join("bookmarks.json")).unwrap_or_default();
         let history: Vec<HistoryEntry> = if settings.history_mode == "save" {
@@ -224,7 +252,7 @@ impl Shared {
             let _ = std::fs::remove_file(data_dir.join("history.json"));
             Vec::new()
         };
-        Arc::new(Self {
+        let sh = Arc::new(Self {
             history: Mutex::new(history),
             tor: Tor::new(),
             blocker: RwLock::new(None),
@@ -244,7 +272,13 @@ impl Shared {
             http_ok: Mutex::new(HashSet::new()),
             https_known: Mutex::new(HashSet::new()),
             afirma: Mutex::new(None),
-        })
+            history_dirty: AtomicBool::new(false),
+            history_io: Mutex::new(()),
+        });
+        if migrated {
+            sh.save_settings();
+        }
+        sh
     }
 
     /// Una pestaña normal ha abierto AutoFirma: durante 10 minutos la web puede hablar con
@@ -335,7 +369,7 @@ impl Shared {
 
     // ---------- Historial ----------
 
-    pub fn add_history(&self, url: &str, title: &str) {
+    pub fn add_history(self: &Arc<Self>, url: &str, title: &str) {
         let (mode, skip_search) = {
             let s = self.settings.lock();
             let prefix = s.search_prefix();
@@ -368,13 +402,39 @@ impl Shared {
 
     /// Guarda solo si el modo leído al principio era "save" Y sigue siéndolo
     /// (evita escribir en disco si el usuario acaba de desactivar el guardado).
-    fn save_history_as(&self, mode_at_start: &str) {
+    fn save_history_as(self: &Arc<Self>, mode_at_start: &str) {
         if mode_at_start == "save" {
+            self.save_history_soon();
+        }
+    }
+
+    /// Guarda el historial dentro de unos segundos, fuera del hilo de la interfaz: varias
+    /// páginas seguidas se guardan de una vez (el archivo puede tener miles de entradas).
+    /// Lo que quede pendiente se guarda al cerrar Sombra (save_history_pending).
+    fn save_history_soon(self: &Arc<Self>) {
+        if self.history_dirty.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let sh = self.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                if sh.history_dirty.swap(false, Ordering::SeqCst) {
+                    sh.save_history_if_needed();
+                }
+            })
+            .await;
+        });
+    }
+
+    /// Al cerrar: guarda lo que estaba esperando.
+    pub fn save_history_pending(&self) {
+        if self.history_dirty.swap(false, Ordering::SeqCst) {
             self.save_history_if_needed();
         }
     }
 
-    pub fn set_history_title(&self, url: &str, title: &str) {
+    pub fn set_history_title(self: &Arc<Self>, url: &str, title: &str) {
         if title.trim().is_empty() {
             return;
         }
@@ -389,11 +449,12 @@ impl Shared {
             }
         };
         if changed {
-            self.save_history_if_needed();
+            self.save_history_soon();
         }
     }
 
     pub fn save_history_if_needed(&self) {
+        let _io = self.history_io.lock();
         if self.settings.lock().history_mode == "save" {
             let h = self.history.lock().clone();
             write_json(&self.data_dir.join("history.json"), &h);
@@ -401,6 +462,8 @@ impl Shared {
     }
 
     pub fn clear_history(&self) {
+        let _io = self.history_io.lock();
+        self.history_dirty.store(false, Ordering::SeqCst);
         self.history.lock().clear();
         let _ = std::fs::remove_file(self.data_dir.join("history.json"));
     }
@@ -592,6 +655,24 @@ pub fn suggestions(history: &[HistoryEntry], bookmarks: &[Bookmark], query: &str
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ajustes_antiguos() {
+        // Archivo de antes (sin "version"), con el historial de entonces por defecto.
+        let mut a: super::Settings = serde_json::from_str(r#"{"history_mode":"session","theme":"light"}"#).unwrap();
+        assert!(a.migrate());
+        assert_eq!((a.history_mode.as_str(), a.theme.as_str(), a.version), ("save", "light", super::SETTINGS_VERSION));
+        assert!(!a.migrate());
+        // "No guardar nada" se respeta.
+        let mut b: super::Settings = serde_json::from_str(r#"{"history_mode":"off"}"#).unwrap();
+        b.migrate();
+        assert_eq!(b.history_mode, "off");
+        // Ya al día: "solo mientras está abierto" elegido a propósito se respeta.
+        let mut c = super::Settings { history_mode: "session".into(), ..Default::default() };
+        assert!(!c.migrate());
+        assert_eq!(c.history_mode, "session");
+        assert_eq!(super::Settings::default().history_mode, "save");
+    }
     use super::*;
 
     fn h(url: &str, title: &str, time: u64) -> HistoryEntry {

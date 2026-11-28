@@ -22,6 +22,7 @@ I18N.zh = {
   searchInvalid: '地址无效。必须以 https:// 开头并包含 %s。',
   historyMode: '历史记录', histOff: '不保存任何内容（最高隐私）', histSession: '仅在 Sombra 打开期间',
   histSave: '保存在本设备', histSaveNote: '保存后会存放在本设备的文件中。0.2 版本将用你的主密码加密。',
+  histNormalOnly: "历史记录仅用于普通模式：在 Sombra 模式下访问的内容永远不会被保存。",
   cleanOnExit: '关闭时清除历史记录', viewHistory: '查看历史记录', histSearchPh: '搜索历史记录',
   histEmpty: '历史记录为空。', clearAllHistory: '全部清除', remove: '移除',
   cleaner: '清理工具', cleanNow: '立即清理', cHistory: '历史记录', cCache: '本次会话的缓存和 Cookie',

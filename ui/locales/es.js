@@ -22,6 +22,7 @@ I18N.es = {
   searchInvalid: 'Dirección no válida. Debe empezar por https:// y llevar %s.',
   historyMode: 'Historial', histOff: 'No guardar nada (máxima privacidad)', histSession: 'Solo mientras Sombra está abierto',
   histSave: 'Guardar en este equipo', histSaveNote: 'Si lo guardas, queda en un archivo de tu equipo. En la versión 0.2 irá cifrado con tu contraseña maestra.',
+  histNormalOnly: "El historial es solo del modo normal: lo que visitas en modo Sombra nunca se guarda.",
   cleanOnExit: 'Borrar el historial al cerrar Sombra', viewHistory: 'Ver historial', histSearchPh: 'Buscar en el historial',
   histEmpty: 'El historial está vacío.', clearAllHistory: 'Borrar todo', remove: 'Quitar',
   cleaner: 'Limpiador', cleanNow: 'Limpiar ahora', cHistory: 'Historial', cCache: 'Caché y cookies de esta sesión',

@@ -22,6 +22,7 @@ I18N.ja = {
   searchInvalid: '無効なアドレスです。https:// で始まり %s を含める必要があります。',
   historyMode: '履歴', histOff: '何も保存しない（最大限のプライバシー）', histSession: 'Sombra を開いている間だけ',
   histSave: 'この端末に保存', histSaveNote: '保存すると端末内のファイルに残ります。バージョン 0.2 ではマスターパスワードで暗号化されます。',
+  histNormalOnly: "履歴は通常モードだけのものです。Sombra モードで見たページは保存されません。",
   cleanOnExit: '終了時に履歴を消去', viewHistory: '履歴を見る', histSearchPh: '履歴を検索',
   histEmpty: '履歴はありません。', clearAllHistory: 'すべて消去', remove: '削除',
   cleaner: 'クリーナー', cleanNow: '今すぐ消去', cHistory: '履歴', cCache: 'このセッションのキャッシュと Cookie',
