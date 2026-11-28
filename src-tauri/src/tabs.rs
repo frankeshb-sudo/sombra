@@ -817,6 +817,64 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
                 &mut token,
             );
         }
+        // Clic derecho en un enlace (pestañas normales): "Abrir enlace en modo Sombra", justo
+        // debajo de "Abrir vínculo en una ventana nueva".
+        if !private {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                ICoreWebView2Environment9, ICoreWebView2_11, ICoreWebView2_2, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
+            };
+            use webview2_com::{ContextMenuRequestedEventHandler, CustomItemSelectedEventHandler};
+            let env = core.cast::<ICoreWebView2_2>().and_then(|c| c.Environment()).and_then(|e| e.cast::<ICoreWebView2Environment9>());
+            if let (Ok(c11), Ok(env)) = (core.cast::<ICoreWebView2_11>(), env) {
+                let sh2 = sh.clone();
+                let _ = c11.add_ContextMenuRequested(
+                    &ContextMenuRequestedEventHandler::create(Box::new(move |_, args| {
+                        let Some(a) = args else { return Ok(()) };
+                        let target = a.ContextMenuTarget()?;
+                        let mut has = BOOL::default();
+                        target.HasLinkUri(&mut has)?;
+                        if !has.as_bool() {
+                            return Ok(());
+                        }
+                        let mut p = PWSTR::null();
+                        target.LinkUri(&mut p)?;
+                        let link = webview2_com::take_pwstr(p);
+                        if !(link.starts_with("https://") || link.starts_with("http://")) {
+                            return Ok(());
+                        }
+                        let label: Vec<u16> = open_in_sombra_label(&sh2).encode_utf16().chain(Some(0)).collect();
+                        let item = env.CreateContextMenuItem(
+                            windows_core::PCWSTR(label.as_ptr()),
+                            None::<&windows::Win32::System::Com::IStream>,
+                            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
+                        )?;
+                        let sh3 = sh2.clone();
+                        let mut tk = 0i64;
+                        item.add_CustomItemSelected(
+                            &CustomItemSelectedEventHandler::create(Box::new(move |_, _| {
+                                open_link_in_sombra(&sh3, link.clone());
+                                Ok(())
+                            })),
+                            &mut tk,
+                        )?;
+                        let items = a.MenuItems()?;
+                        let mut n = 0u32;
+                        items.Count(&mut n)?;
+                        let mut pos = 0u32;
+                        for i in 0..n {
+                            let mut name = PWSTR::null();
+                            if items.GetValueAtIndex(i).and_then(|it| it.Name(&mut name)).is_ok() && webview2_com::take_pwstr(name) == "openLinkInNewWindow" {
+                                pos = i + 1;
+                                break;
+                            }
+                        }
+                        items.InsertValueAtIndex(pos, &item)?;
+                        Ok(())
+                    })),
+                    &mut token,
+                );
+            }
+        }
         if let Ok(w18) = core.cast::<ICoreWebView2_18>() {
             let _ = w18.add_LaunchingExternalUriScheme(
                 &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
@@ -841,8 +899,7 @@ fn windows_hooks(pw: tauri::webview::PlatformWebview, sh: Arc<Shared>, id: u32, 
     }
 }
 
-/// Descargas en Linux: el contexto web (uno por modo) avisa de cada una. Se engancha una sola
-/// vez por contexto (se marca con un dato propio).
+/// Icono de WebKit (imagen cairo) en PNG de 32 px como mucho.
 #[cfg(target_os = "linux")]
 fn surface_png(s: &gtk::cairo::Surface) -> Option<Vec<u8>> {
     let img = gtk::cairo::ImageSurface::try_from(s.clone()).ok()?;
@@ -856,6 +913,8 @@ fn surface_png(s: &gtk::cairo::Surface) -> Option<Vec<u8>> {
     pb.save_to_bufferv("png", &[]).ok()
 }
 
+/// Descargas en Linux: el contexto web (uno por modo) avisa de cada una. Se engancha una sola
+/// vez por contexto (se marca con un dato propio).
 #[cfg(target_os = "linux")]
 fn linux_downloads(wv: &webkit2gtk::WebView, sh: &Arc<Shared>, private: bool) {
     use crate::downloads as dl;
@@ -1078,6 +1137,42 @@ fn set_favicon(sh: &Shared, id: u32, png: Option<&[u8]>) {
         if !t.private {
             t.favicon = url;
         }
+    });
+}
+
+/// Texto de "Abrir enlace en modo Sombra" en el idioma de la interfaz (el menú lo pinta el
+/// motor, no la interfaz de Sombra).
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+fn open_in_sombra_label(sh: &Shared) -> &'static str {
+    let pref = sh.settings.lock().language.clone();
+    let lang = if pref == "auto" { sys_locale::get_locale().unwrap_or_default() } else { pref };
+    match lang.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase().as_str() {
+        "es" => "Abrir enlace en modo Sombra",
+        "ca" => "Obre l'enllaç en mode Sombra",
+        "fr" => "Ouvrir le lien en mode Sombra",
+        "de" => "Link im Sombra-Modus öffnen",
+        "it" => "Apri link in modalità Sombra",
+        "pt" => "Abrir ligação no modo Sombra",
+        "nl" => "Link openen in Sombra-modus",
+        "pl" => "Otwórz link w trybie Sombra",
+        "ru" => "Открыть ссылку в режиме Sombra",
+        "ar" => "فتح الرابط في وضع Sombra",
+        "ja" => "Sombra モードでリンクを開く",
+        "zh" => "在 Sombra 模式下打开链接",
+        _ => "Open link in Sombra mode",
+    }
+}
+
+/// Abre un enlace en una pestaña nueva del modo Sombra (menú del clic derecho).
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+fn open_link_in_sombra(sh: &Arc<Shared>, link: String) {
+    if !(link.starts_with("https://") || link.starts_with("http://")) {
+        return;
+    }
+    let Some(app) = sh.app.get().cloned() else { return };
+    let sh = sh.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = new_tab_mode(&app, &sh, Some(link), true).await;
     });
 }
 
@@ -1395,6 +1490,30 @@ fn linux_hooks(wv: webkit2gtk::WebView, sh: Arc<Shared>, app: AppHandle, id: u32
         }
     }
     linux_downloads(&wv, &sh, tab_private(&sh, id));
+    // Clic derecho en un enlace (pestañas normales): "Abrir enlace en modo Sombra", justo
+    // debajo de "Abrir enlace en una ventana nueva".
+    if !tab_private(&sh, id) {
+        use webkit2gtk::{ContextMenuAction, ContextMenuExt, ContextMenuItemExt, HitTestResultExt};
+        let sh2 = sh.clone();
+        wv.connect_context_menu(move |_, menu, _, hit| {
+            if !hit.context_is_link() {
+                return false;
+            }
+            let Some(link) = hit.link_uri().map(|u| u.to_string()) else { return false };
+            if !(link.starts_with("https://") || link.starts_with("http://")) {
+                return false;
+            }
+            let action = gtk::gio::SimpleAction::new("sombra-abrir-en-sombra", None);
+            let sh3 = sh2.clone();
+            action.connect_activate(move |_, _| open_link_in_sombra(&sh3, link.clone()));
+            let item = webkit2gtk::ContextMenuItem::from_gaction(&action, open_in_sombra_label(&sh2), None);
+            let pos = (0..menu.n_items())
+                .find(|&i| menu.item_at_position(i).is_some_and(|it| it.stock_action() == ContextMenuAction::OpenLinkInNewWindow))
+                .map_or(0, |i| i as i32 + 1);
+            menu.insert(&item, pos);
+            false
+        });
+    }
     // Icono de la web (solo pestañas normales). WebKit los guarda en una carpeta que se borra
     // al cerrar Sombra (la del perfil temporal): no queda en el disco qué webs has visitado.
     if !tab_private(&sh, id) {

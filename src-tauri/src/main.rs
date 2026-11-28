@@ -929,7 +929,7 @@ fn main() {
 
             #[cfg(debug_assertions)]
             if ["SOMBRA_SELFTEST", "SOMBRA_AUDIT"].iter().any(|v| std::env::var(v).is_ok())
-                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos"].contains(&v.as_str()))
+                || std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu"].contains(&v.as_str()))
             {
                 sh.settings.lock().default_private = true;
             }
@@ -1035,6 +1035,30 @@ fn main() {
                     tabs::move_tab(&sh2, a, 99);
                     log::warn!("SECTEST iconos 4 movidas (Sombra al principio, wikidata al final): {}", lista(&sh2));
                     log::warn!("SECTEST iconos fin");
+                });
+            }
+
+            // Solo en pruebas (SOMBRA_SECTEST=menu): abre una web normal y espera a que alguien use
+            // "Abrir enlace en modo Sombra" con el ratón (se ve en la lista de pestañas).
+            #[cfg(debug_assertions)]
+            if std::env::var("SOMBRA_SECTEST").as_deref() == Ok("menu") {
+                let (app2, sh2) = (handle.clone(), sh.clone());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let a = tabs::new_tab_mode(&app2, &sh2, Some("https://en.wikipedia.org/wiki/Tor_(network)".into()), false).await.unwrap_or(0);
+                    tabs::wait_loaded(&sh2, a, 60).await;
+                    log::warn!("SECTEST menu listo");
+                    for _ in 0..60 {
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        let l: Vec<String> = sh2.tabs.lock().list.iter().map(|x| format!("{}:{}", if x.private { "S" } else { "N" }, x.url)).collect();
+                        if l.iter().any(|x| x.starts_with("S:")) {
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                            let l: Vec<String> = sh2.tabs.lock().list.iter().map(|x| format!("{}:{}", if x.private { "S" } else { "N" }, x.url)).collect();
+                            log::warn!("SECTEST menu abierta en modo Sombra: {l:?}");
+                            break;
+                        }
+                    }
+                    log::warn!("SECTEST menu fin");
                 });
             }
 
@@ -1270,7 +1294,7 @@ fn main() {
 
             // Solo en pruebas (SOMBRA_SECTEST=1): niveles de seguridad y anuncios de YouTube.
             #[cfg(debug_assertions)]
-            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos"].contains(&v.as_str())) {
+            if std::env::var("SOMBRA_SECTEST").is_ok_and(|v| !["modos", "afirma", "reabrir", "descargas", "cookies", "sesion", "iconos", "menu"].contains(&v.as_str())) {
                 let (app2, sh2) = (handle.clone(), sh.clone());
                 tauri::async_runtime::spawn(async move {
                     while !sh2.tor.is_ready() {
