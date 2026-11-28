@@ -782,6 +782,8 @@ pub fn set_fullscreen(app: &AppHandle, sh: &Arc<Shared>, id: u32, on: bool) {
     if let Some(w) = app.get_window("main") {
         let _ = w.set_fullscreen(on);
     }
+    // La interfaz se vuelve negra detrás de la página (sin barra ni bordes a la vista).
+    sh.emit("fullscreen", on);
     layout(app, sh);
     // La ventana tarda un momento en cambiar de tamaño.
     let (app2, sh2) = (app.clone(), sh.clone());
@@ -1236,9 +1238,10 @@ pub async fn eval_tab(app: &AppHandle, id: u32, js: String) -> anyhow::Result<se
 
 /// Coloca la pestaña activa en la zona de contenido y oculta las demás (pestañas dormidas).
 pub fn layout(app: &AppHandle, sh: &Shared) {
-    let (rect, active, ids, fs) = {
+    let (rect, active, ids, fs, private) = {
         let t = sh.tabs.lock();
-        (t.rect, t.active, t.list.iter().map(|x| x.id).collect::<Vec<_>>(), t.fullscreen)
+        let private = t.active.and_then(|a| t.list.iter().find(|x| x.id == a)).is_some_and(|x| x.private);
+        (t.rect, t.active, t.list.iter().map(|x| x.id).collect::<Vec<_>>(), t.fullscreen, private)
     };
     let (mut x, mut y, mut w, mut h) = rect;
     // Pantalla completa: la pestaña ocupa toda la ventana (que ya está a pantalla completa).
@@ -1249,9 +1252,10 @@ pub fn layout(app: &AppHandle, sh: &Shared) {
             }
         }
     }
-    // Huella reforzada: la página mide un múltiplo de 100 px (centrada), como el
-    // "letterboxing" de Tor Browser. Así el tamaño de la ventana no identifica a nadie.
-    if sh.settings.lock().fp_strict && w >= 200.0 && h >= 200.0 {
+    // Huella reforzada (solo modo Sombra, como el resto de esa protección): la página mide un
+    // múltiplo de 100 px (centrada), como el "letterboxing" de Tor Browser. Así el tamaño de la
+    // ventana no identifica a nadie. En pantalla completa los bordes se ven negros (interfaz).
+    if private && sh.settings.lock().fp_strict && w >= 200.0 && h >= 200.0 {
         let (w2, h2) = ((w / 100.0).floor() * 100.0, (h / 100.0).floor() * 100.0);
         x += ((w - w2) / 2.0).floor();
         y += ((h - h2) / 2.0).floor();
@@ -1367,6 +1371,12 @@ pub async fn reopen(app: &AppHandle, sh: &Arc<Shared>, index: Option<usize>) -> 
 /// vieja, que se cierra en segundo plano, no choca con la nueva ni puede cambiar
 /// la pestaña con eventos que lleguen tarde.
 pub fn go_home(app: &AppHandle, sh: &Shared, id: u32) -> Option<u32> {
+    // Si estaba a pantalla completa (Alt+Inicio desde un vídeo), primero se sale.
+    let was_fullscreen = sh.tabs.lock().fullscreen == Some(id);
+    if was_fullscreen {
+        let sh_arc = app.state::<Arc<Shared>>().inner().clone();
+        set_fullscreen(app, &sh_arc, id, false);
+    }
     if let Some(wv) = app.get_webview(&label(id)) {
         let _ = wv.close();
     }

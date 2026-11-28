@@ -805,6 +805,8 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && pageOpen) closePage();
 });
 listen('shortcut', (ev) => runShortcut(ev.payload));
+// Pantalla completa de una página: detrás solo negro (si quedan bordes, no se ve la interfaz).
+listen('fullscreen', (ev) => document.documentElement.classList.toggle('fs', !!ev.payload));
 
 listen('tabs', (ev) => { if (!S) return; S.tabs = ev.payload.list; S.active = ev.payload.active; renderTabs(); updateFillSoon(); });
 listen('log', () => { if (!$('panel').classList.contains('hidden')) refreshLogs(); });

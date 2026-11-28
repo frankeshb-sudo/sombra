@@ -80,6 +80,8 @@ body:not(.sombra) #tor-line, body:not(.sombra) #tor-bar, body:not(.sombra) #coun
 #addr-form { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 0 6px 0 10px; min-width: 0; }
 #addr-form:focus-within { border-color: var(--accent); }
 #addr-lock { color: var(--ok); display: flex; }
+html.fs, html.fs body { background: #000; }
+html.fs body > * { visibility: hidden; }
 /* Sugerencias de la barra de direcciones (la web se oculta mientras están abiertas) */
 #sug { position: absolute; top: 4px; z-index: 20; background: var(--bar2); border: 1px solid var(--line); border-radius: var(--r); padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.35); max-width: calc(100% - 8px); }
 .sug-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: calc(var(--r) - 3px); cursor: pointer; min-width: 0; }
